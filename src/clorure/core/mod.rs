@@ -9,6 +9,8 @@ use crate::clorure::runtime::value::{FnValue, NativeFn, Value};
 pub const CORE_NS: &str = "clrs.core";
 pub const CORE_MACROS_NS: &str = "clrs.core$macros";
 pub const BOOTSTRAP_NS: &str = "clorure.bootstrap.primitives";
+pub const CORE_SOURCE_PATH: &str = "clrs/core.cljs";
+pub const CORE_MACROS_SOURCE_PATH: &str = "clrs/core.cljc";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompatibilityPhase {
@@ -105,16 +107,27 @@ pub fn install_into_state(
 }
 
 pub fn core_source() -> String {
-    let body = ["+", "vector", "list", "count", "first", "rest", "=", "nil?"]
-        .into_iter()
-        .map(|name| format!("(def {name} {BOOTSTRAP_NS}/{name})"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!("(ns {CORE_NS})\n{body}\n")
+    include_str!("../../../clrs/core.cljs").to_string()
 }
 
 pub fn core_macros_source() -> String {
-    format!("(ns {CORE_MACROS_NS})\n(def when {BOOTSTRAP_NS}/when)\n")
+    include_str!("../../../clrs/core.cljc").to_string()
+}
+
+pub fn source_map_for(ns: &Symbol) -> Option<String> {
+    match ns.to_string().as_str() {
+        CORE_NS => Some(format!("bootstrap://{CORE_SOURCE_PATH}")),
+        CORE_MACROS_NS => Some(format!("bootstrap://{CORE_MACROS_SOURCE_PATH}")),
+        _ => None,
+    }
+}
+
+pub fn embedded_namespace_source(ns: &Symbol) -> Option<&'static str> {
+    match ns.to_string().as_str() {
+        CORE_NS | "clorure.core" => Some(include_str!("../../../clrs/core.cljs")),
+        CORE_MACROS_NS => Some(include_str!("../../../clrs/core.cljc")),
+        _ => None,
+    }
 }
 
 pub fn phase_for(feature: &str) -> Option<CompatibilityPhase> {

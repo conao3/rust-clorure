@@ -34,6 +34,12 @@ fn repl_eval_and_analyze_return_incremental_results() {
         qualified.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(7))
     );
+
+    let when = repl::eval_str(&mut session, "(when true 9)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        when.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(9))
+    );
 }
 
 #[test]
@@ -62,6 +68,24 @@ fn session_loads_files_and_namespaces() {
     assert_eq!(
         ns_outcome.produced_vars,
         vec![Symbol::parse("demo.core/ns-value")]
+    );
+
+    let core_outcome = session
+        .load_ns(&Symbol::parse("clrs.core"), AnalysisEnv::default())
+        .unwrap();
+    assert!(
+        core_outcome
+            .produced_vars
+            .contains(&Symbol::parse("clrs.core/+"))
+    );
+
+    let macros_outcome = session
+        .load_ns(&Symbol::parse("clrs.core$macros"), AnalysisEnv::default())
+        .unwrap();
+    assert!(
+        macros_outcome
+            .produced_vars
+            .contains(&Symbol::parse("clrs.core$macros/when"))
     );
 
     std::env::set_current_dir(old_dir).unwrap();

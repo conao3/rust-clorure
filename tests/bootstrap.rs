@@ -15,7 +15,7 @@ fn empty_state_preloads_core_like_cljs_js() {
     assert!(state.vars.contains_key(&Symbol::parse("clrs.core/+")));
     assert_eq!(
         state.source_maps.get(&Symbol::parse("clrs.core")),
-        Some(&"bootstrap://clrs/core".to_string())
+        Some(&"bootstrap://clrs/core.cljs".to_string())
     );
     assert!(state.namespaces[&Symbol::parse("clrs.core")].bootstrap);
 }
@@ -25,6 +25,10 @@ fn dump_core_extracts_bootstrap_cache() {
     let dump = dump_core();
     assert!(dump.namespaces.contains_key(&Symbol::parse("clrs.core")));
     assert!(dump.vars.contains_key(&Symbol::parse("clrs.core/vector")));
+    assert_eq!(
+        dump.source_maps.get(&Symbol::parse("clrs.core$macros")),
+        Some(&"bootstrap://clrs/core.cljc".to_string())
+    );
 }
 
 #[test]

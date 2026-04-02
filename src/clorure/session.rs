@@ -27,8 +27,11 @@ impl Loader for FileSystemLoader {
     }
 
     fn load_ns(&self, ns: &Symbol) -> Result<String, String> {
+        if let Some(source) = crate::clorure::core::embedded_namespace_source(ns) {
+            return Ok(source.to_string());
+        }
         let stem = ns.to_string().replace('.', "/");
-        for ext in ["clj", "cljc"] {
+        for ext in ["clj", "cljc", "cljs"] {
             let relative = format!("{stem}.{ext}");
             if let Ok(source) = fs::read_to_string(&relative) {
                 return Ok(source);

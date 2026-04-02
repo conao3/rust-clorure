@@ -189,11 +189,42 @@ fn resolve_macro<'a>(
     symbol: &Symbol,
 ) -> Option<&'a Value> {
     if symbol.is_qualified() {
-        state.resolve_var(symbol)
+        resolve_qualified_macro(state, symbol)
     } else {
         let qualified = symbol.qualify(env.ns.to_string());
+        let current_macro = macro_symbol_for_ns(&env.ns, symbol.name());
         state
-            .resolve_var(&qualified)
+            .resolve_var(&current_macro)
+            .or_else(|| state.resolve_var(&qualified))
             .or_else(|| state.resolve_var(symbol))
+            .or_else(|| {
+                state.resolve_var(&Symbol::parse(&format!(
+                    "{}{}{}",
+                    crate::clorure::core::CORE_MACROS_NS,
+                    "/",
+                    symbol.name()
+                )))
+            })
     }
+}
+
+fn resolve_qualified_macro<'a>(state: &'a CompilerState, symbol: &Symbol) -> Option<&'a Value> {
+    let namespace = symbol.namespace()?;
+    let macro_symbol = if namespace.ends_with("$macros") {
+        symbol.clone()
+    } else {
+        macro_symbol_for_ns(&Symbol::parse(namespace), symbol.name())
+    };
+    state
+        .resolve_var(&macro_symbol)
+        .or_else(|| state.resolve_var(symbol))
+}
+
+fn macro_symbol_for_ns(ns: &Symbol, name: &str) -> Symbol {
+    let macro_ns = if ns.to_string().ends_with("$macros") {
+        ns.to_string()
+    } else {
+        format!("{ns}$macros")
+    };
+    Symbol::parse(&format!("{macro_ns}/{name}"))
 }

@@ -45,10 +45,9 @@ pub fn dump_core_from_state(state: &CompilerState) -> CoreDump {
             let mut analysis = analysis.clone();
             analysis.bootstrap = true;
             dump.namespaces.insert(ns.clone(), analysis);
-            dump.source_maps.insert(
-                ns.clone(),
-                format!("bootstrap://{}", ns.to_string().replace('.', "/")),
-            );
+            if let Some(source_map) = core::source_map_for(&ns) {
+                dump.source_maps.insert(ns.clone(), source_map);
+            }
         }
     }
     for (symbol, value) in &state.vars {
@@ -81,7 +80,9 @@ pub fn load_analysis_cache(state: &mut CompilerState, dump: CoreDump) {
 }
 
 pub fn bootstrap_runtime_state(state: &CompilerState) -> HashMap<Symbol, Value> {
-    state.vars.clone()
+    let mut runtime_state = state.vars.clone();
+    core::install_bootstrap_primitives(&mut CompilerState::default(), &mut runtime_state);
+    runtime_state
 }
 
 fn evaluate_bootstrap_source(
