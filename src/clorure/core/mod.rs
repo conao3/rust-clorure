@@ -70,7 +70,9 @@ pub fn feature_matrix() -> Vec<FeatureStatus> {
 
 pub fn install_phase1(registry: &mut BuiltinRegistry) {
     for namespace in [CORE_NS, "clorure.core"] {
-        for name in ["+", "vector", "list", "count", "first", "rest", "=", "nil?"] {
+        for name in [
+            "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
+        ] {
             register_core_symbol(registry, namespace, name, core_builtin(name));
         }
     }
@@ -177,7 +179,9 @@ fn register_core_symbol(
 
 fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
     let mut values = Vec::new();
-    for name in ["+", "vector", "list", "count", "first", "rest", "=", "nil?"] {
+    for name in [
+        "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
+    ] {
         let symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/{name}"));
         values.push((
             symbol.clone(),
@@ -310,6 +314,38 @@ fn core_builtin(name: &str) -> BuiltinFn {
             [Value::Nil] => Ok(Value::Bool(true)),
             [_] => Ok(Value::Bool(false)),
             _ => Err(BuiltinError::new("nil? expects one value")),
+        }),
+        "conj" => Arc::new(|args, _| match args {
+            [Value::Vector(vector), value] => {
+                let mut items = (*vector.items).clone();
+                items.push(value.clone());
+                Ok(Value::vector(items))
+            }
+            [Value::List(list), value] => {
+                let mut items = vec![value.clone()];
+                items.extend(list.items.iter().cloned());
+                Ok(Value::list(items))
+            }
+            _ => Err(BuiltinError::new("conj expects a list/vector and a value")),
+        }),
+        "nth" => Arc::new(|args, _| match args {
+            [Value::Vector(vector), Value::Int(index)] => vector
+                .items
+                .get(*index as usize)
+                .cloned()
+                .ok_or_else(|| BuiltinError::new("nth index out of bounds")),
+            [Value::List(list), Value::Int(index)] => list
+                .items
+                .get(*index as usize)
+                .cloned()
+                .ok_or_else(|| BuiltinError::new("nth index out of bounds")),
+            _ => Err(BuiltinError::new("nth expects a list/vector and an index")),
+        }),
+        "boolean" => Arc::new(|args, _| match args {
+            [Value::Nil] => Ok(Value::Bool(false)),
+            [Value::Bool(false)] => Ok(Value::Bool(false)),
+            [_] => Ok(Value::Bool(true)),
+            _ => Err(BuiltinError::new("boolean expects one value")),
         }),
         _ => Arc::new(|_, _| Err(BuiltinError::new("unknown core builtin"))),
     }

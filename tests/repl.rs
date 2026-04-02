@@ -78,6 +78,38 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Bool(true))
     );
 
+    let conj = repl::eval_str(
+        &mut session,
+        "(conj (vector 1 2) 3)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        conj.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::vector(vec![
+            rust_clorure::clorure::runtime::value::Value::Int(1),
+            rust_clorure::clorure::runtime::value::Value::Int(2),
+            rust_clorure::clorure::runtime::value::Value::Int(3),
+        ]))
+    );
+
+    let nth = repl::eval_str(
+        &mut session,
+        "(nth (vector 5 6 7) 1)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        nth.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(6))
+    );
+
+    let boolean = repl::eval_str(&mut session, "(boolean nil)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        boolean.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Bool(false))
+    );
+
     let when_not =
         repl::eval_str(&mut session, "(when-not false 12)", AnalysisEnv::default()).unwrap();
     assert_eq!(

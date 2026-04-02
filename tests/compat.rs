@@ -51,10 +51,33 @@ fn phase1_core_builtins_cover_basic_seq_workflows() {
             &default_call_context(),
         )
         .unwrap();
+    let conj = registry
+        .invoke(
+            &Symbol::parse("clrs.core/conj"),
+            &[vector.clone(), Value::Int(4)],
+            &default_call_context(),
+        )
+        .unwrap();
+    let nth = registry
+        .invoke(
+            &Symbol::parse("clrs.core/nth"),
+            &[conj.clone(), Value::Int(2)],
+            &default_call_context(),
+        )
+        .unwrap();
+    let boolean = registry
+        .invoke(
+            &Symbol::parse("clrs.core/boolean"),
+            &[Value::Nil],
+            &default_call_context(),
+        )
+        .unwrap();
 
     assert_eq!(count, Value::Int(3));
     assert_eq!(first, Value::Int(1));
     assert_eq!(list, Value::list(vec![Value::Int(4), Value::Int(5)]));
+    assert_eq!(nth, Value::Int(3));
+    assert_eq!(boolean, Value::Bool(false));
 }
 
 #[test]
