@@ -1,6 +1,7 @@
 use crate::clorure::ast::{AstNode, AstOp};
 use crate::clorure::env::{AnalysisContext, AnalysisEnv, CompilerState, CompilerWarning};
 use crate::clorure::forms::{Form, FormKind, Symbol};
+use crate::clorure::macro_support::MacroExpander;
 use crate::clorure::runtime::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +107,14 @@ fn analyze_list(
 ) -> Result<AstNode, AnalyzerError> {
     if items.is_empty() {
         return analyze_constant(form, state, env);
+    }
+
+    let mut expander = MacroExpander::default();
+    if let Some(expanded) = expander
+        .macroexpand_1(&form, state, &env)
+        .map_err(|error| AnalyzerError::new(error.message, Form::new(FormKind::Nil, error.meta)))?
+    {
+        return analyze(expanded, state, env.enter_macroexpansion());
     }
 
     let head = items[0].clone();

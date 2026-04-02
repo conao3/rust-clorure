@@ -200,6 +200,56 @@ impl Value {
             FormKind::TaggedLiteral { .. } => Ok(Self::Form(Box::new(form.clone()))),
         }
     }
+
+    pub fn into_form(self, meta: crate::clorure::forms::ReaderMeta) -> Result<Form, String> {
+        match self {
+            Self::Nil => Ok(Form::new(FormKind::Nil, meta)),
+            Self::Bool(value) => Ok(Form::new(FormKind::Bool(value), meta)),
+            Self::Int(value) => Ok(Form::new(FormKind::Int(value), meta)),
+            Self::String(value) => Ok(Form::new(FormKind::String(value), meta)),
+            Self::Keyword(value) => Ok(Form::new(FormKind::Keyword(value), meta)),
+            Self::Symbol(value) => Ok(Form::new(FormKind::Symbol(value.symbol), meta)),
+            Self::List(value) => Ok(Form::new(
+                FormKind::List(
+                    value
+                        .items
+                        .iter()
+                        .cloned()
+                        .map(|item| item.into_form(meta.clone()))
+                        .collect::<Result<_, _>>()?,
+                ),
+                meta,
+            )),
+            Self::Vector(value) => Ok(Form::new(
+                FormKind::Vector(
+                    value
+                        .items
+                        .iter()
+                        .cloned()
+                        .map(|item| item.into_form(meta.clone()))
+                        .collect::<Result<_, _>>()?,
+                ),
+                meta,
+            )),
+            Self::Map(value) => Ok(Form::new(
+                FormKind::Map(
+                    value
+                        .entries
+                        .iter()
+                        .cloned()
+                        .map(|(key, value)| {
+                            Ok((key.into_form(meta.clone())?, value.into_form(meta.clone())?))
+                        })
+                        .collect::<Result<_, String>>()?,
+                ),
+                meta,
+            )),
+            Self::Form(form) => Ok(*form),
+            Self::Set(_) | Self::Fn(_) | Self::Macro(_) | Self::OpaqueHandle(_) => {
+                Err("value cannot be converted into a reader form".to_string())
+            }
+        }
+    }
 }
 
 impl ISeq for PersistentList {

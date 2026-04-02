@@ -4,6 +4,8 @@ pub mod backend;
 pub mod compiler;
 pub mod env;
 pub mod forms;
+pub mod interop;
+pub mod macro_support;
 pub mod reader;
 pub mod repl;
 pub mod runtime;

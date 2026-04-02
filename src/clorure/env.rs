@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::clorure::forms::{ReaderMeta, Symbol};
-use crate::clorure::runtime::value::Value;
+use crate::clorure::runtime::value::{FnValue, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilerWarning {
@@ -47,6 +47,14 @@ impl CompilerState {
 
     pub fn register_var(&mut self, symbol: Symbol, value: Value) {
         self.vars.insert(symbol, value);
+    }
+
+    pub fn register_macro(&mut self, symbol: Symbol, func: FnValue) {
+        self.vars.insert(symbol, Value::Macro(func));
+    }
+
+    pub fn resolve_var(&self, symbol: &Symbol) -> Option<&Value> {
+        self.vars.get(symbol)
     }
 
     pub fn register_ns(&mut self, ns: Symbol) {
