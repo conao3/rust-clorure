@@ -11,4 +11,8 @@
 
 (def identity (fn [x] x))
 (def inc (fn [x] (+ x 1)))
+(def dec (fn [x] (+ x -1)))
 (def empty? (fn [coll] (= 0 (count coll))))
+(def not (fn [x] (if x false true)))
+(def zero? (fn [x] (= x 0)))
+(def second (fn [coll] (first (rest coll))))

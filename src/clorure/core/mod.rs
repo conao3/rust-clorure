@@ -212,6 +212,66 @@ fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
         }),
     ));
 
+    let when_not_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/when-not"));
+    values.push((
+        when_not_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(when_not_symbol),
+            arity: 2,
+            func: Arc::new(|args| match args {
+                [Value::Form(test), Value::Form(body)] => Ok(Value::Form(Box::new(Form::new(
+                    FormKind::List(vec![
+                        Form::symbol(None, "if", test.meta.clone()),
+                        Form::new(
+                            FormKind::List(vec![
+                                Form::symbol(None, "not", test.meta.clone()),
+                                *test.clone(),
+                            ]),
+                            test.meta.clone(),
+                        ),
+                        *body.clone(),
+                        Form::new(FormKind::Nil, body.meta.clone()),
+                    ]),
+                    test.meta.clone(),
+                )))),
+                _ => Err("when-not expects two forms".to_string()),
+            }),
+            meta: None,
+        }),
+    ));
+
+    let if_not_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/if-not"));
+    values.push((
+        if_not_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(if_not_symbol),
+            arity: 3,
+            func: Arc::new(|args| match args {
+                [
+                    Value::Form(test),
+                    Value::Form(then_branch),
+                    Value::Form(else_branch),
+                ] => Ok(Value::Form(Box::new(Form::new(
+                    FormKind::List(vec![
+                        Form::symbol(None, "if", test.meta.clone()),
+                        Form::new(
+                            FormKind::List(vec![
+                                Form::symbol(None, "not", test.meta.clone()),
+                                *test.clone(),
+                            ]),
+                            test.meta.clone(),
+                        ),
+                        *then_branch.clone(),
+                        *else_branch.clone(),
+                    ]),
+                    test.meta.clone(),
+                )))),
+                _ => Err("if-not expects three forms".to_string()),
+            }),
+            meta: None,
+        }),
+    ));
+
     values
 }
 

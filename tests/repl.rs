@@ -49,10 +49,47 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(10))
     );
 
+    let dec = repl::eval_str(&mut session, "(dec 9)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        dec.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(8))
+    );
+
     let empty = repl::eval_str(&mut session, "(empty? (vector))", AnalysisEnv::default()).unwrap();
     assert_eq!(
         empty.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Bool(true))
+    );
+
+    let second = repl::eval_str(
+        &mut session,
+        "(second (vector 1 2 3))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        second.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(2))
+    );
+
+    let zero = repl::eval_str(&mut session, "(zero? 0)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        zero.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Bool(true))
+    );
+
+    let when_not =
+        repl::eval_str(&mut session, "(when-not false 12)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        when_not.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(12))
+    );
+
+    let if_not =
+        repl::eval_str(&mut session, "(if-not false 1 2)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        if_not.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(1))
     );
 
     session.bind_global(
@@ -155,7 +192,6 @@ fn session_loads_files_and_namespaces() {
         helper_eval.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(11))
     );
-
     let app_outcome = session
         .load_ns(&Symbol::parse("demo.app"), AnalysisEnv::default())
         .unwrap();
@@ -181,6 +217,16 @@ fn session_loads_files_and_namespaces() {
             .runtime_state
             .get(&Symbol::parse("demo.app/via-macro")),
         Some(&rust_clorure::clorure::runtime::value::Value::Int(34))
+    );
+    let helper_alias_eval = repl::eval_str(
+        &mut session,
+        "(m/when-demo true 15)",
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.app")),
+    )
+    .unwrap();
+    assert_eq!(
+        helper_alias_eval.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(15))
     );
 
     std::env::set_current_dir(old_dir).unwrap();
