@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::clorure::forms::Symbol;
-use crate::clorure::runtime::value::Value;
+use crate::clorure::runtime::value::{FnValue, Value};
 
 pub type BuiltinFn =
     Arc<dyn Fn(&[Value], &CallContext) -> Result<Value, BuiltinError> + Send + Sync>;
@@ -70,5 +70,38 @@ impl BuiltinRegistry {
             .get(symbol)
             .ok_or_else(|| BuiltinError::new(format!("unknown builtin '{symbol}'")))?;
         function(args, context)
+    }
+
+    pub fn exported_values(&self) -> Vec<(Symbol, Value)> {
+        self.functions
+            .iter()
+            .map(|(symbol, function)| {
+                (
+                    symbol.clone(),
+                    Value::Fn(FnValue {
+                        name: Some(symbol.clone()),
+                        arity: usize::MAX,
+                        func: {
+                            let symbol = symbol.clone();
+                            let function = Arc::clone(function);
+                            Arc::new(move |args| {
+                                function(
+                                    args,
+                                    &CallContext {
+                                        current_ns: symbol
+                                            .namespace()
+                                            .map(Symbol::parse)
+                                            .unwrap_or_else(|| Symbol::parse("user")),
+                                        ..CallContext::default()
+                                    },
+                                )
+                                .map_err(|error| error.message)
+                            })
+                        },
+                        meta: None,
+                    }),
+                )
+            })
+            .collect()
     }
 }

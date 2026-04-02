@@ -7,6 +7,7 @@ use crate::clorure::analyzer::{AnalyzerError, analyze};
 use crate::clorure::ast::AstNode;
 use crate::clorure::backend::bytecode::{BytecodeProgram, Vm};
 use crate::clorure::compiler::{BackendTarget, CompiledArtifact, compile};
+use crate::clorure::core;
 use crate::clorure::env::{AnalysisEnv, CompilerState, CompilerWarning};
 use crate::clorure::forms::{Form, Symbol};
 use crate::clorure::runtime::builtin::BuiltinRegistry;
@@ -81,15 +82,23 @@ pub struct Session {
 
 impl Default for Session {
     fn default() -> Self {
-        Self {
+        let mut builtin_registry = BuiltinRegistry::new();
+        core::install_phase1(&mut builtin_registry);
+        let mut session = Self {
             compiler_state: CompilerState::default(),
             runtime_state: HashMap::new(),
             source_cache: HashMap::new(),
             bytecode_cache: HashMap::new(),
-            builtin_registry: BuiltinRegistry::new(),
+            builtin_registry,
             loader: Arc::new(FileSystemLoader),
             evaluator: Arc::new(VmEvaluator),
-        }
+        };
+        core::install_into_state(
+            &mut session.compiler_state,
+            &mut session.runtime_state,
+            &session.builtin_registry,
+        );
+        session
     }
 }
 

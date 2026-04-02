@@ -21,6 +21,19 @@ fn repl_eval_and_analyze_return_incremental_results() {
             .runtime_state
             .contains_key(&Symbol::parse("user/answer"))
     );
+
+    let plus = repl::eval_str(&mut session, "(+ 1 2)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        plus.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(3))
+    );
+
+    let qualified =
+        repl::eval_str(&mut session, "(clojure.core/+ 3 4)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        qualified.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(7))
+    );
 }
 
 #[test]
