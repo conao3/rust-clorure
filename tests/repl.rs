@@ -164,6 +164,28 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(5))
     );
 
+    let multi_arity_fn = repl::eval_str(
+        &mut session,
+        "((fn ([x] (+ x 1)) ([x y] (+ x y))) 2 3)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        multi_arity_fn.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(5))
+    );
+
+    let multi_arity_defn = repl::eval_str(
+        &mut session,
+        "(defn sum ([x] (+ x 1)) ([x y] (+ x y))) (sum 4 5)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        multi_arity_defn.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(9))
+    );
+
     session.bind_global(
         Symbol::parse("clrs.core/+"),
         Value::Fn(FnValue {
@@ -215,7 +237,7 @@ fn session_loads_files_and_namespaces() {
     .unwrap();
     fs::write(
         temp_root.join("demo/fnapp.cljs"),
-        "(ns demo.fnapp) (defn plus-two [x] (+ x 2)) (def via-defn (plus-two 5))",
+        "(ns demo.fnapp) (defn plus-two ([x] (+ x 2)) ([x y] (+ x y))) (def via-defn (plus-two 5)) (def via-defn-arity2 (plus-two 5 6))",
     )
     .unwrap();
 
@@ -374,6 +396,12 @@ fn session_loads_files_and_namespaces() {
             .runtime_state
             .get(&Symbol::parse("demo.fnapp/via-defn")),
         Some(&rust_clorure::clorure::runtime::value::Value::Int(7))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.fnapp/via-defn-arity2")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(11))
     );
 
     std::env::set_current_dir(old_dir).unwrap();

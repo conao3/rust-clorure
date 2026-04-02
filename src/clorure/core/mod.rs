@@ -355,6 +355,45 @@ fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
         }),
     ));
 
+    let defn_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/defn"));
+    values.push((
+        defn_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(defn_symbol),
+            arity: usize::MAX,
+            func: Arc::new(|args| {
+                let Some((name_value, fn_tail)) = args.split_first() else {
+                    return Err("defn expects a symbol and a function body".to_string());
+                };
+                let name_form = expect_macro_form(name_value)?;
+                let FormKind::Symbol(_) = name_form.value else {
+                    return Err("defn expects a symbol name".to_string());
+                };
+                if fn_tail.is_empty() {
+                    return Err("defn expects at least one function body form".to_string());
+                }
+
+                let mut fn_items = vec![Form::symbol(None, "fn", name_form.meta.clone())];
+                fn_items.extend(
+                    fn_tail
+                        .iter()
+                        .map(expect_macro_form)
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+
+                Ok(Value::Form(Box::new(Form::new(
+                    FormKind::List(vec![
+                        Form::symbol(None, "def", name_form.meta.clone()),
+                        name_form.clone(),
+                        Form::new(FormKind::List(fn_items), name_form.meta.clone()),
+                    ]),
+                    name_form.meta.clone(),
+                ))))
+            }),
+            meta: None,
+        }),
+    ));
+
     values
 }
 

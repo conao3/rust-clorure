@@ -12,6 +12,9 @@ pub struct AnalyzerError {
     pub form: Box<Form>,
 }
 
+type FnMethod = (Vec<Symbol>, Vec<Form>);
+type ParsedFnMethods = (Option<Symbol>, Vec<FnMethod>);
+
 impl AnalyzerError {
     pub(crate) fn new(message: impl Into<String>, form: Form) -> Self {
         Self {
@@ -229,35 +232,25 @@ fn analyze_fn(
     state: &mut CompilerState,
     env: AnalysisEnv,
 ) -> Result<AstNode, AnalyzerError> {
-    let (name, params_form, body_forms) = match args {
-        [params, body @ ..] if matches!(params.value, FormKind::Vector(_)) => {
-            (None, params.clone(), body)
+    let (name, methods) = parse_fn_methods(args, &form)?;
+    let mut method_bodies = Vec::new();
+    let mut method_params = Vec::new();
+    for (params, body_forms) in methods {
+        let mut fn_env = env.with_context(AnalysisContext::Return);
+        for param in &params {
+            fn_env = fn_env.with_local(param.clone());
         }
-        [name_form, params, body @ ..] if matches!(params.value, FormKind::Vector(_)) => (
-            Some(expect_symbol(name_form.clone())?),
-            params.clone(),
-            body,
-        ),
-        _ => {
-            return Err(AnalyzerError::new(
-                "fn requires an optional name, a vector of params, and a body",
-                form,
-            ));
-        }
-    };
-
-    let params = expect_vector_symbols(params_form)?;
-    let mut fn_env = env.with_context(AnalysisContext::Return);
-    for param in &params {
-        fn_env = fn_env.with_local(param.clone());
+        method_bodies.push(analyze_do_body(&body_forms, state, fn_env)?);
+        method_params.push(Value::vector(
+            params.into_iter().map(Value::symbol).collect(),
+        ));
     }
-    let body = analyze_do_body(body_forms, state, fn_env)?;
     let mut node = AstNode::new(AstOp::Fn, env, form)
-        .with_children(vec![body])
-        .with_attr(
-            "params",
-            Value::vector(params.into_iter().map(Value::symbol).collect()),
-        );
+        .with_children(method_bodies)
+        .with_attr("methods", Value::vector(method_params.clone()));
+    if let [single] = method_params.as_slice() {
+        node = node.with_attr("params", single.clone());
+    }
     if let Some(name) = name {
         node = node.with_attr("name", Value::symbol(name));
     }
@@ -474,6 +467,70 @@ fn expect_symbol(form: Form) -> Result<Symbol, AnalyzerError> {
         FormKind::Symbol(symbol) => Ok(symbol),
         _ => Err(AnalyzerError::new("expected symbol", form)),
     }
+}
+
+fn parse_fn_methods(args: &[Form], form: &Form) -> Result<ParsedFnMethods, AnalyzerError> {
+    match args {
+        [params, body @ ..] if matches!(params.value, FormKind::Vector(_)) => Ok((
+            None,
+            vec![(expect_vector_symbols(params.clone())?, body.to_vec())],
+        )),
+        [name_form, params, body @ ..] if matches!(params.value, FormKind::Vector(_)) => Ok((
+            Some(expect_symbol(name_form.clone())?),
+            vec![(expect_vector_symbols(params.clone())?, body.to_vec())],
+        )),
+        methods if methods.iter().all(is_fn_method_form) => Ok((
+            None,
+            methods
+                .iter()
+                .cloned()
+                .map(parse_fn_method_form)
+                .collect::<Result<_, _>>()?,
+        )),
+        [name_form, methods @ ..]
+            if matches!(name_form.value, FormKind::Symbol(_))
+                && methods.iter().all(is_fn_method_form) =>
+        {
+            Ok((
+                Some(expect_symbol(name_form.clone())?),
+                methods
+                    .iter()
+                    .cloned()
+                    .map(parse_fn_method_form)
+                    .collect::<Result<_, _>>()?,
+            ))
+        }
+        _ => Err(AnalyzerError::new(
+            "fn requires an optional name and one or more arity clauses",
+            form.clone(),
+        )),
+    }
+}
+
+fn is_fn_method_form(form: &Form) -> bool {
+    matches!(
+        &form.value,
+        FormKind::List(items)
+            if items
+                .first()
+                .is_some_and(|first| matches!(first.value, FormKind::Vector(_)))
+    )
+}
+
+fn parse_fn_method_form(form: Form) -> Result<FnMethod, AnalyzerError> {
+    let FormKind::List(items) = form.value else {
+        return Err(AnalyzerError::new("fn method must be a list", form));
+    };
+    let Some((params_form, body_forms)) = items.split_first() else {
+        return Err(AnalyzerError::new(
+            "fn method requires params and a body",
+            Form::new(FormKind::List(items), default_meta()),
+        ));
+    };
+    Ok((
+        expect_vector_symbols(params_form.clone())?,
+        body_forms.to_vec(),
+    ))
 }
 
 fn parse_ns_metadata(

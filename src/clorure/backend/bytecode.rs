@@ -6,6 +6,12 @@ use crate::clorure::forms::{ReaderMeta, Symbol};
 use crate::clorure::runtime::value::{FnValue, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosureMethod {
+    pub params: Vec<String>,
+    pub body: Box<BytecodeProgram>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     Const(Value),
     LookupVar(Symbol),
@@ -19,6 +25,10 @@ pub enum Instruction {
     MakeClosure {
         params: Vec<String>,
         body: Box<BytecodeProgram>,
+        captured: Vec<String>,
+    },
+    MakeMultiClosure {
+        methods: Vec<ClosureMethod>,
         captured: Vec<String>,
     },
     InvokeRecur(Vec<String>),
@@ -114,31 +124,35 @@ impl BytecodeCompiler {
                 }
             }
             AstOp::Fn => {
-                let params = match node.attrs.get("params") {
-                    Some(Value::Vector(vector)) => vector
-                        .items
-                        .iter()
-                        .filter_map(|value| match value {
-                            Value::Symbol(symbol) => Some(symbol.symbol.name().to_string()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>(),
-                    _ => Vec::new(),
-                };
-                let body = node.children.first().cloned().unwrap_or_else(|| {
-                    AstNode::new(AstOp::Constant, node.env.clone(), node.form.clone())
-                        .with_attr("value", Value::Nil)
-                });
-                let body_program = emit(&body);
                 let captures = node.env.locals.keys().cloned().collect::<Vec<_>>();
-                self.push(
-                    Instruction::MakeClosure {
-                        params,
-                        body: Box::new(body_program),
-                        captured: captures,
-                    },
-                    node.form.meta.clone(),
-                );
+                let methods = closure_methods(node);
+                if methods.len() <= 1 {
+                    let method = methods.into_iter().next().unwrap_or_else(|| ClosureMethod {
+                        params: Vec::new(),
+                        body: Box::new(emit(&node.children.first().cloned().unwrap_or_else(
+                            || {
+                                AstNode::new(AstOp::Constant, node.env.clone(), node.form.clone())
+                                    .with_attr("value", Value::Nil)
+                            },
+                        ))),
+                    });
+                    self.push(
+                        Instruction::MakeClosure {
+                            params: method.params,
+                            body: method.body,
+                            captured: captures,
+                        },
+                        node.form.meta.clone(),
+                    );
+                } else {
+                    self.push(
+                        Instruction::MakeMultiClosure {
+                            methods,
+                            captured: captures,
+                        },
+                        node.form.meta.clone(),
+                    );
+                }
             }
             AstOp::Let | AstOp::Loop => {
                 let binding_names = match node.attrs.get("bindings") {
@@ -428,6 +442,39 @@ impl Vm {
                     };
                     stack.push(Value::Fn(closure));
                 }
+                Instruction::MakeMultiClosure { methods, captured } => {
+                    let mut captured_locals = HashMap::new();
+                    for name in captured {
+                        if let Some(value) = locals.get(&name).cloned() {
+                            captured_locals.insert(name, value);
+                        }
+                    }
+                    let shared_globals = Arc::clone(&self.globals);
+                    let closure = FnValue {
+                        name: None,
+                        arity: usize::MAX,
+                        func: Arc::new(move |args| {
+                            let Some(method) = methods
+                                .iter()
+                                .find(|method| method.params.len() == args.len())
+                            else {
+                                return Err(format!(
+                                    "no matching arity for {} argument(s)",
+                                    args.len()
+                                ));
+                            };
+                            let mut vm = Vm::with_shared_globals(Arc::clone(&shared_globals));
+                            let mut frame = captured_locals.clone();
+                            for (param, value) in method.params.iter().zip(args.iter()) {
+                                frame.insert(param.clone(), value.clone());
+                            }
+                            vm.run_with_locals(&method.body, frame)
+                                .map_err(|error| error.message)
+                        }),
+                        meta: None,
+                    };
+                    stack.push(Value::Fn(closure));
+                }
                 Instruction::InvokeRecur(bindings) => {
                     let mut values = Vec::with_capacity(bindings.len());
                     for _ in 0..bindings.len() {
@@ -485,4 +532,36 @@ impl Vm {
         }
         trace
     }
+}
+
+fn closure_methods(node: &AstNode) -> Vec<ClosureMethod> {
+    let method_params = match node.attrs.get("methods") {
+        Some(Value::Vector(vector)) => vector
+            .items
+            .iter()
+            .filter_map(|method| match method {
+                Value::Vector(params) => Some(
+                    params
+                        .items
+                        .iter()
+                        .filter_map(|value| match value {
+                            Value::Symbol(symbol) => Some(symbol.symbol.name().to_string()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+
+    node.children
+        .iter()
+        .enumerate()
+        .map(|(idx, body)| ClosureMethod {
+            params: method_params.get(idx).cloned().unwrap_or_default(),
+            body: Box::new(emit(body)),
+        })
+        .collect()
 }
