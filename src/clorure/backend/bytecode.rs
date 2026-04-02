@@ -33,6 +33,7 @@ pub struct BytecodeProgram {
     pub instructions: Vec<Instruction>,
     pub source_map: Vec<ReaderMeta>,
     pub produced_vars: Vec<Symbol>,
+    pub produced_macros: Vec<Symbol>,
 }
 
 pub fn emit(node: &AstNode) -> BytecodeProgram {
@@ -43,6 +44,7 @@ pub fn emit(node: &AstNode) -> BytecodeProgram {
         instructions: compiler.instructions,
         source_map: compiler.source_map,
         produced_vars: compiler.produced_vars,
+        produced_macros: compiler.produced_macros,
     }
 }
 
@@ -51,6 +53,7 @@ struct BytecodeCompiler {
     instructions: Vec<Instruction>,
     source_map: Vec<ReaderMeta>,
     produced_vars: Vec<Symbol>,
+    produced_macros: Vec<Symbol>,
 }
 
 impl BytecodeCompiler {
@@ -92,14 +95,18 @@ impl BytecodeCompiler {
             AstOp::Ns => {
                 self.push(Instruction::Const(Value::Nil), node.form.meta.clone());
             }
-            AstOp::Def => {
+            AstOp::Def | AstOp::DefMacro => {
                 if let Some(child) = node.children.first() {
                     self.compile_node(child);
                 } else {
                     self.push(Instruction::Const(Value::Nil), node.form.meta.clone());
                 }
                 if let Some(Value::Symbol(symbol)) = node.attrs.get("name") {
-                    self.produced_vars.push(symbol.symbol.clone());
+                    if matches!(node.op, AstOp::DefMacro) {
+                        self.produced_macros.push(symbol.symbol.clone());
+                    } else {
+                        self.produced_vars.push(symbol.symbol.clone());
+                    }
                     self.push(
                         Instruction::SetGlobal(symbol.symbol.clone()),
                         node.form.meta.clone(),

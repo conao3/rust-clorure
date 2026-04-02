@@ -11,6 +11,7 @@ pub enum AstOp {
     Invoke,
     Ns,
     Def,
+    DefMacro,
     Fn,
     Let,
     If,

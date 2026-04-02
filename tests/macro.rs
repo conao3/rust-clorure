@@ -90,6 +90,23 @@ fn analyzer_expands_macros_before_building_ast() {
 }
 
 #[test]
+fn analyzer_builds_defmacro_nodes() {
+    let form = read_all("(defmacro emit-one [] 1)").unwrap().remove(0);
+    let mut state = CompilerState::default();
+    let ast = analyze(
+        form,
+        &mut state,
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.macros$macros")),
+    )
+    .unwrap();
+    assert_eq!(ast.op, AstOp::DefMacro);
+    assert_eq!(
+        ast.attrs.get("name"),
+        Some(&Value::symbol(Symbol::parse("demo.macros$macros/emit-one")))
+    );
+}
+
+#[test]
 fn expansion_budget_and_policy_are_enforced() {
     let mut expander = MacroExpander::new(
         ExpansionBudget {

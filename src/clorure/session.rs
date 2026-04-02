@@ -172,6 +172,7 @@ impl Session {
                 unreachable!();
             };
             produced_vars.extend(program.produced_vars.clone());
+            produced_vars.extend(program.produced_macros.clone());
             return_value = Some(self.evaluator.eval(&self.shared_globals, &program)?);
             self.runtime_state = self.snapshot_globals();
             if let Some(value) = return_value.clone() {
@@ -180,6 +181,19 @@ impl Session {
                     if symbol.namespace() == Some(crate::clorure::core::CORE_NS) {
                         self.bind_global(Symbol::parse(symbol.name()), value.clone());
                     }
+                }
+                for symbol in &program.produced_macros {
+                    let current = self
+                        .runtime_state
+                        .get(symbol)
+                        .cloned()
+                        .unwrap_or_else(|| value.clone());
+                    let macro_value = match current {
+                        Value::Fn(function) => Value::Macro(function),
+                        Value::Macro(function) => Value::Macro(function),
+                        other => other,
+                    };
+                    self.bind_global(symbol.clone(), macro_value);
                 }
             }
             self.bytecode_cache.insert(cache_key(&env, &ast), program);

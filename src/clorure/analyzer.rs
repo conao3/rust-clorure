@@ -126,6 +126,7 @@ fn analyze_list(
         return match symbol.to_string().as_str() {
             "ns" => analyze_ns(form, &items[1..], state, env),
             "def" => analyze_def(form, &items[1..], state, env),
+            "defmacro" => analyze_defmacro(form, &items[1..], state, env),
             "fn" => analyze_fn(form, &items[1..], state, env),
             "let" => analyze_let(form, &items[1..], state, env),
             "if" => analyze_if(form, &items[1..], state, env),
@@ -180,6 +181,43 @@ fn analyze_def(
     let qualified = symbol.qualify(env.ns.to_string());
     state.register_var(qualified.clone(), Value::Nil);
     Ok(AstNode::new(AstOp::Def, env, form)
+        .with_tag(Symbol::parse("var"))
+        .with_children(vec![init])
+        .with_attr("name", Value::symbol(qualified)))
+}
+
+fn analyze_defmacro(
+    form: Form,
+    args: &[Form],
+    state: &mut CompilerState,
+    env: AnalysisEnv,
+) -> Result<AstNode, AnalyzerError> {
+    let (symbol_form, fn_form) = match args {
+        [symbol, fn_form] => (symbol.clone(), fn_form.clone()),
+        [symbol, params_form, body @ ..] => (
+            symbol.clone(),
+            Form::new(
+                FormKind::List(
+                    std::iter::once(Form::symbol(None, "fn", form.meta.clone()))
+                        .chain(std::iter::once(params_form.clone()))
+                        .chain(body.iter().cloned())
+                        .collect(),
+                ),
+                form.meta.clone(),
+            ),
+        ),
+        _ => {
+            return Err(AnalyzerError::new(
+                "defmacro requires a symbol, params, and a body",
+                form,
+            ));
+        }
+    };
+    let symbol = expect_symbol(symbol_form)?;
+    let init = analyze(fn_form, state, env.clone())?;
+    let qualified = symbol.qualify(env.ns.to_string());
+    state.register_var(qualified.clone(), Value::Nil);
+    Ok(AstNode::new(AstOp::DefMacro, env, form)
         .with_tag(Symbol::parse("var"))
         .with_children(vec![init])
         .with_attr("name", Value::symbol(qualified)))

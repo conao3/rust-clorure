@@ -123,12 +123,12 @@ fn session_loads_files_and_namespaces() {
     .unwrap();
     fs::write(
         temp_root.join("demo/macros.cljc"),
-        "(ns demo.macros$macros) (def when-demo clorure.bootstrap.primitives/when)",
+        "(ns demo.macros$macros) (def when-demo clorure.bootstrap.primitives/when) (defmacro emit-constant [] 55)",
     )
     .unwrap();
     fs::write(
         temp_root.join("demo/app.cljs"),
-        "(ns demo.app (:require [demo.lib :as lib :refer [ping]] [demo.macros :as m :refer-macros [when-demo]])) (def via-alias lib/value) (def via-refer ping) (def via-macro (when-demo true 34))",
+        "(ns demo.app (:require [demo.lib :as lib :refer [ping]] [demo.macros :as m :refer-macros [when-demo emit-constant]])) (def via-alias lib/value) (def via-refer ping) (def via-macro (when-demo true 34)) (def via-source-macro (emit-constant))",
     )
     .unwrap();
 
@@ -217,6 +217,12 @@ fn session_loads_files_and_namespaces() {
             .runtime_state
             .get(&Symbol::parse("demo.app/via-macro")),
         Some(&rust_clorure::clorure::runtime::value::Value::Int(34))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.app/via-source-macro")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(55))
     );
     let helper_alias_eval = repl::eval_str(
         &mut session,
