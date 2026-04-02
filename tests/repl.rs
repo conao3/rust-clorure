@@ -40,6 +40,18 @@ fn repl_eval_and_analyze_return_incremental_results() {
         when.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(9))
     );
+
+    let inc = repl::eval_str(&mut session, "(inc 9)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        inc.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(10))
+    );
+
+    let empty = repl::eval_str(&mut session, "(empty? (vector))", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        empty.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Bool(true))
+    );
 }
 
 #[test]
@@ -86,6 +98,33 @@ fn session_loads_files_and_namespaces() {
         macros_outcome
             .produced_vars
             .contains(&Symbol::parse("clrs.core$macros/when"))
+    );
+
+    fs::write(
+        temp_root.join("demo/helpers.cljc"),
+        "(ns demo.helpers$macros)\n(def helper-when clorure.bootstrap.primitives/when)",
+    )
+    .unwrap();
+    let helper_macros = session
+        .load_ns(
+            &Symbol::parse("demo.helpers$macros"),
+            AnalysisEnv::default(),
+        )
+        .unwrap();
+    assert!(
+        helper_macros
+            .produced_vars
+            .contains(&Symbol::parse("demo.helpers$macros/helper-when"))
+    );
+    let helper_eval = repl::eval_str(
+        &mut session,
+        "(demo.helpers/helper-when true 11)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        helper_eval.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(11))
     );
 
     std::env::set_current_dir(old_dir).unwrap();

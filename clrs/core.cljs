@@ -8,3 +8,7 @@
 (def rest clorure.bootstrap.primitives/rest)
 (def = clorure.bootstrap.primitives/=)
 (def nil? clorure.bootstrap.primitives/nil?)
+
+(def identity (fn [x] x))
+(def inc (fn [x] (+ x 1)))
+(def empty? (fn [coll] (= 0 (count coll))))

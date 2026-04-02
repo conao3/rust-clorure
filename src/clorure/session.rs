@@ -30,8 +30,15 @@ impl Loader for FileSystemLoader {
         if let Some(source) = crate::clorure::core::embedded_namespace_source(ns) {
             return Ok(source.to_string());
         }
-        let stem = ns.to_string().replace('.', "/");
-        for ext in ["clj", "cljc", "cljs"] {
+        let (stem, extensions): (String, &[&str]) = if ns.to_string().ends_with("$macros") {
+            (
+                ns.to_string().trim_end_matches("$macros").replace('.', "/"),
+                &["cljc", "clj"],
+            )
+        } else {
+            (ns.to_string().replace('.', "/"), &["cljs", "cljc", "clj"])
+        };
+        for ext in extensions {
             let relative = format!("{stem}.{ext}");
             if let Ok(source) = fs::read_to_string(&relative) {
                 return Ok(source);

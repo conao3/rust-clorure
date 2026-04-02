@@ -82,8 +82,11 @@ pub fn install_bootstrap_primitives(
 ) {
     state.register_ns(Symbol::parse(BOOTSTRAP_NS));
     for (symbol, value) in bootstrap_primitives() {
+        let short = Symbol::parse(symbol.name());
         state.register_var(symbol.clone(), value.clone());
-        runtime_state.insert(symbol, value);
+        state.register_var(short.clone(), value.clone());
+        runtime_state.insert(symbol, value.clone());
+        runtime_state.insert(short, value);
     }
 }
 
