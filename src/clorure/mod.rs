@@ -1,4 +1,5 @@
 pub mod analyzer;
+pub mod aot;
 pub mod ast;
 pub mod backend;
 pub mod compiler;
@@ -9,3 +10,4 @@ pub mod macro_support;
 pub mod reader;
 pub mod repl;
 pub mod runtime;
+pub mod session;

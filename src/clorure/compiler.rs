@@ -9,7 +9,7 @@ pub enum BackendTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompiledArtifact {
-    Bytecode(Vec<bytecode::Instruction>),
+    Bytecode(bytecode::BytecodeProgram),
     Rust(String),
 }
 

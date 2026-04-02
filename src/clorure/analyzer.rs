@@ -11,7 +11,7 @@ pub struct AnalyzerError {
 }
 
 impl AnalyzerError {
-    fn new(message: impl Into<String>, form: Form) -> Self {
+    pub(crate) fn new(message: impl Into<String>, form: Form) -> Self {
         Self {
             message: message.into(),
             form: Box::new(form),
