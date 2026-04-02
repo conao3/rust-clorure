@@ -134,6 +134,28 @@ fn analyzer_expands_refer_all_when_publics_are_known() {
 }
 
 #[test]
+fn analyzer_prefers_current_namespace_for_unqualified_vars() {
+    let forms = read_all("(def local-value 1) local-value").unwrap();
+    let mut state = CompilerState::default();
+    analyze(
+        forms[0].clone(),
+        &mut state,
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.core")),
+    )
+    .unwrap();
+    let resolved = analyze(
+        forms[1].clone(),
+        &mut state,
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.core")),
+    )
+    .unwrap();
+    assert_eq!(
+        resolved.attrs.get("symbol"),
+        Some(&Value::symbol(Symbol::parse("demo.core/local-value")))
+    );
+}
+
+#[test]
 fn analyzer_tracks_let_locals_and_unresolved_warnings() {
     let forms = read_all("(let [x 1] (+ x y))").unwrap();
     let mut state = CompilerState::default();

@@ -92,10 +92,21 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(1))
     );
 
+    let defn_call = repl::eval_str(
+        &mut session,
+        "(defn add-one [x] (+ x 1)) (add-one 4)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        defn_call.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(5))
+    );
+
     session.bind_global(
-        Symbol::parse("+"),
+        Symbol::parse("clrs.core/+"),
         Value::Fn(FnValue {
-            name: Some(Symbol::parse("+")),
+            name: Some(Symbol::parse("clrs.core/+")),
             arity: 2,
             func: Arc::new(|_| Ok(Value::Int(99))),
             meta: None,
@@ -139,6 +150,11 @@ fn session_loads_files_and_namespaces() {
     fs::write(
         temp_root.join("demo/all.cljs"),
         "(ns demo.all (:require [demo.lib :refer :all] [demo.macros :include-macros true :refer-macros :all])) (def via-all value) (def via-all-macro (emit-constant))",
+    )
+    .unwrap();
+    fs::write(
+        temp_root.join("demo/fnapp.cljs"),
+        "(ns demo.fnapp) (defn plus-two [x] (+ x 2)) (def via-defn (plus-two 5))",
     )
     .unwrap();
 
@@ -283,6 +299,20 @@ fn session_loads_files_and_namespaces() {
             .runtime_state
             .get(&Symbol::parse("demo.all/via-all-macro")),
         Some(&rust_clorure::clorure::runtime::value::Value::Int(55))
+    );
+    let fnapp_outcome = session
+        .load_ns(&Symbol::parse("demo.fnapp"), AnalysisEnv::default())
+        .unwrap();
+    assert!(
+        fnapp_outcome
+            .produced_vars
+            .contains(&Symbol::parse("demo.fnapp/via-defn"))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.fnapp/via-defn")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(7))
     );
 
     std::env::set_current_dir(old_dir).unwrap();

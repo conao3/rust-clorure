@@ -748,6 +748,10 @@ fn resolve_symbol(state: &CompilerState, env: &AnalysisEnv, symbol: &Symbol) -> 
         }
         symbol.clone()
     } else if let Some(analysis) = state.namespace_analysis(&env.ns) {
+        let current_ns_symbol = symbol.qualify(env.ns.to_string());
+        if state.resolve_var(&current_ns_symbol).is_some() {
+            return current_ns_symbol;
+        }
         if let Some(renamed) = analysis.renames.get(symbol.name()) {
             return renamed.clone();
         }
