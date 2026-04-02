@@ -79,6 +79,21 @@ fn session_loads_files_and_namespaces() {
     let old_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(&temp_root).unwrap();
     fs::write(temp_root.join("demo/core.clj"), "(def ns-value 8)").unwrap();
+    fs::write(
+        temp_root.join("demo/lib.cljs"),
+        "(ns demo.lib) (def value 13) (def ping 21)",
+    )
+    .unwrap();
+    fs::write(
+        temp_root.join("demo/macros.cljc"),
+        "(ns demo.macros$macros) (def when-demo clorure.bootstrap.primitives/when)",
+    )
+    .unwrap();
+    fs::write(
+        temp_root.join("demo/app.cljs"),
+        "(ns demo.app (:require [demo.lib :as lib :refer [ping]] [demo.macros :as m :refer-macros [when-demo]])) (def via-alias lib/value) (def via-refer ping) (def via-macro (when-demo true 34))",
+    )
+    .unwrap();
 
     let file_outcome = session
         .load_file(&file_path, AnalysisEnv::default())
@@ -139,6 +154,33 @@ fn session_loads_files_and_namespaces() {
     assert_eq!(
         helper_eval.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(11))
+    );
+
+    let app_outcome = session
+        .load_ns(&Symbol::parse("demo.app"), AnalysisEnv::default())
+        .unwrap();
+    assert!(
+        app_outcome
+            .produced_vars
+            .contains(&Symbol::parse("demo.app/via-alias"))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.app/via-alias")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(13))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.app/via-refer")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(21))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.app/via-macro")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(34))
     );
 
     std::env::set_current_dir(old_dir).unwrap();

@@ -28,6 +28,52 @@ fn analyzer_builds_ns_and_def_nodes() {
 }
 
 #[test]
+fn analyzer_tracks_requires_and_alias_resolution() {
+    let forms = read_all(
+        "(ns demo.app (:require [demo.lib :as lib :refer [ping]] [demo.macros :as m :refer-macros [when-demo]])) (lib/value) ping",
+    )
+    .unwrap();
+    let mut state = CompilerState::default();
+    analyze(forms[0].clone(), &mut state, AnalysisEnv::default()).unwrap();
+
+    let ns = state
+        .namespace_analysis(&Symbol::parse("demo.app"))
+        .expect("ns analysis should exist");
+    assert_eq!(ns.requires.get("lib"), Some(&Symbol::parse("demo.lib")));
+    assert_eq!(
+        ns.require_macros.get("m"),
+        Some(&Symbol::parse("demo.macros$macros"))
+    );
+    assert_eq!(ns.uses.get("ping"), Some(&Symbol::parse("demo.lib/ping")));
+    assert_eq!(
+        ns.use_macros.get("when-demo"),
+        Some(&Symbol::parse("demo.macros$macros/when-demo"))
+    );
+
+    let aliased = analyze(
+        forms[1].clone(),
+        &mut state,
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.app")),
+    )
+    .unwrap();
+    assert_eq!(
+        aliased.children[0].attrs.get("symbol"),
+        Some(&Value::symbol(Symbol::parse("demo.lib/value")))
+    );
+
+    let referred = analyze(
+        forms[2].clone(),
+        &mut state,
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.app")),
+    )
+    .unwrap();
+    assert_eq!(
+        referred.attrs.get("symbol"),
+        Some(&Value::symbol(Symbol::parse("demo.lib/ping")))
+    );
+}
+
+#[test]
 fn analyzer_tracks_let_locals_and_unresolved_warnings() {
     let forms = read_all("(let [x 1] (+ x y))").unwrap();
     let mut state = CompilerState::default();

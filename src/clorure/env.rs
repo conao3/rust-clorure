@@ -29,6 +29,12 @@ pub struct ProtocolDefinition {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NamespaceAnalysis {
     pub publics: Vec<Symbol>,
+    pub requires: HashMap<String, Symbol>,
+    pub require_macros: HashMap<String, Symbol>,
+    pub uses: HashMap<String, Symbol>,
+    pub use_macros: HashMap<String, Symbol>,
+    pub renames: HashMap<String, Symbol>,
+    pub rename_macros: HashMap<String, Symbol>,
     pub bootstrap: bool,
 }
 
@@ -78,6 +84,14 @@ impl CompilerState {
 
     pub fn register_ns_with_analysis(&mut self, ns: Symbol, analysis: NamespaceAnalysis) {
         self.namespaces.insert(ns, analysis);
+    }
+
+    pub fn namespace_analysis(&self, ns: &Symbol) -> Option<&NamespaceAnalysis> {
+        self.namespaces.get(ns)
+    }
+
+    pub fn namespace_analysis_mut(&mut self, ns: &Symbol) -> Option<&mut NamespaceAnalysis> {
+        self.namespaces.get_mut(ns)
     }
 
     pub fn load_source_map(&mut self, ns: Symbol, source_map: String) {

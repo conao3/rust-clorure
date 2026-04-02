@@ -189,12 +189,20 @@ fn resolve_macro<'a>(
     symbol: &Symbol,
 ) -> Option<&'a Value> {
     if symbol.is_qualified() {
-        resolve_qualified_macro(state, symbol)
+        resolve_qualified_macro(state, env, symbol)
     } else {
         let qualified = symbol.qualify(env.ns.to_string());
         let current_macro = macro_symbol_for_ns(&env.ns, symbol.name());
+        let referred = state
+            .namespace_analysis(&env.ns)
+            .and_then(|analysis| analysis.use_macros.get(symbol.name()));
         state
-            .resolve_var(&current_macro)
+            .resolve_var(
+                &referred
+                    .cloned()
+                    .unwrap_or_else(|| Symbol::parse("__missing__/macro")),
+            )
+            .or_else(|| state.resolve_var(&current_macro))
             .or_else(|| state.resolve_var(&qualified))
             .or_else(|| state.resolve_var(symbol))
             .or_else(|| {
@@ -208,13 +216,26 @@ fn resolve_macro<'a>(
     }
 }
 
-fn resolve_qualified_macro<'a>(state: &'a CompilerState, symbol: &Symbol) -> Option<&'a Value> {
+fn resolve_qualified_macro<'a>(
+    state: &'a CompilerState,
+    env: &AnalysisEnv,
+    symbol: &Symbol,
+) -> Option<&'a Value> {
     let namespace = symbol.namespace()?;
-    let macro_symbol = if namespace.ends_with("$macros") {
-        symbol.clone()
-    } else {
-        macro_symbol_for_ns(&Symbol::parse(namespace), symbol.name())
-    };
+    let macro_symbol = state
+        .namespace_analysis(&env.ns)
+        .and_then(|analysis| analysis.require_macros.get(namespace))
+        .map(|resolved| Symbol::parse(&format!("{resolved}/{}", symbol.name())))
+        .or_else(|| {
+            if namespace.ends_with("$macros") {
+                Some(symbol.clone())
+            } else {
+                Some(macro_symbol_for_ns(
+                    &Symbol::parse(namespace),
+                    symbol.name(),
+                ))
+            }
+        })?;
     state
         .resolve_var(&macro_symbol)
         .or_else(|| state.resolve_var(symbol))

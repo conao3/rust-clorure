@@ -1,5 +1,7 @@
 use crate::clorure::ast::{AstNode, AstOp};
-use crate::clorure::env::{AnalysisContext, AnalysisEnv, CompilerState, CompilerWarning};
+use crate::clorure::env::{
+    AnalysisContext, AnalysisEnv, CompilerState, CompilerWarning, NamespaceAnalysis,
+};
 use crate::clorure::forms::{Form, FormKind, Symbol};
 use crate::clorure::macro_support::MacroExpander;
 use crate::clorure::runtime::value::Value;
@@ -76,7 +78,9 @@ fn analyze_symbol(
     state: &mut CompilerState,
     env: AnalysisEnv,
 ) -> Result<AstNode, AnalyzerError> {
+    let resolved = resolve_symbol(state, &env, &symbol);
     if !env.locals.contains_key(symbol.name())
+        && !state.vars.contains_key(&resolved)
         && !state.vars.contains_key(&symbol)
         && !symbol.is_qualified()
     {
@@ -87,7 +91,7 @@ fn analyze_symbol(
         ));
     }
 
-    Ok(AstNode::new(AstOp::SymbolRef, env, form).with_attr("symbol", Value::symbol(symbol)))
+    Ok(AstNode::new(AstOp::SymbolRef, env, form).with_attr("symbol", Value::symbol(resolved)))
 }
 
 fn analyze_quote(
@@ -150,7 +154,8 @@ fn analyze_ns(
         .cloned()
         .ok_or_else(|| AnalyzerError::new("ns requires a namespace symbol", form.clone()))?;
     let ns_symbol = expect_symbol(ns_form)?;
-    state.register_ns(ns_symbol.clone());
+    let analysis = parse_ns_metadata(&ns_symbol, &args[1..])?;
+    state.register_ns_with_analysis(ns_symbol.clone(), analysis.clone());
     Ok(
         AstNode::new(AstOp::Ns, env.with_ns(ns_symbol.clone()), form)
             .with_tag(Symbol::parse("ns"))
@@ -430,6 +435,225 @@ fn expect_symbol(form: Form) -> Result<Symbol, AnalyzerError> {
     match form.value {
         FormKind::Symbol(symbol) => Ok(symbol),
         _ => Err(AnalyzerError::new("expected symbol", form)),
+    }
+}
+
+fn parse_ns_metadata(
+    ns_symbol: &Symbol,
+    clauses: &[Form],
+) -> Result<NamespaceAnalysis, AnalyzerError> {
+    let mut analysis = NamespaceAnalysis::default();
+    for clause in clauses {
+        let FormKind::List(items) = &clause.value else {
+            return Err(AnalyzerError::new(
+                "ns clauses must be lists",
+                clause.clone(),
+            ));
+        };
+        let Some(Form {
+            value: FormKind::Keyword(kind),
+            ..
+        }) = items.first()
+        else {
+            return Err(AnalyzerError::new(
+                "ns clauses must start with a keyword",
+                clause.clone(),
+            ));
+        };
+
+        match kind.name() {
+            "require" => {
+                for spec in &items[1..] {
+                    let parsed = parse_require_spec(spec.clone(), false)?;
+                    let alias = parsed.alias.unwrap_or_else(|| parsed.ns.name().to_string());
+                    analysis.requires.insert(alias.clone(), parsed.ns.clone());
+                    for referred in parsed.refer {
+                        analysis.uses.insert(
+                            referred.name().to_string(),
+                            referred.qualify(parsed.ns.to_string()),
+                        );
+                    }
+                    for renamed in parsed.rename {
+                        analysis.renames.insert(renamed.0, renamed.1);
+                    }
+                    if parsed.include_macros
+                        || !parsed.refer_macros.is_empty()
+                        || !parsed.rename_macros.is_empty()
+                    {
+                        analysis.require_macros.insert(alias, macro_ns(&parsed.ns));
+                    }
+                    for referred in parsed.refer_macros {
+                        analysis.use_macros.insert(
+                            referred.name().to_string(),
+                            referred.qualify(macro_ns(&parsed.ns).to_string()),
+                        );
+                    }
+                    for renamed in parsed.rename_macros {
+                        analysis.rename_macros.insert(renamed.0, renamed.1);
+                    }
+                }
+            }
+            "require-macros" => {
+                for spec in &items[1..] {
+                    let parsed = parse_require_spec(spec.clone(), true)?;
+                    let alias = parsed.alias.unwrap_or_else(|| parsed.ns.name().to_string());
+                    analysis.require_macros.insert(alias, macro_ns(&parsed.ns));
+                    for referred in parsed.refer {
+                        analysis.use_macros.insert(
+                            referred.name().to_string(),
+                            referred.qualify(macro_ns(&parsed.ns).to_string()),
+                        );
+                    }
+                    for renamed in parsed.rename {
+                        analysis.rename_macros.insert(renamed.0, renamed.1);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if ns_symbol.to_string() == crate::clorure::core::CORE_NS {
+        analysis.require_macros.insert(
+            crate::clorure::core::CORE_MACROS_NS.to_string(),
+            Symbol::parse(crate::clorure::core::CORE_MACROS_NS),
+        );
+    }
+    Ok(analysis)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RequireSpec {
+    ns: Symbol,
+    alias: Option<String>,
+    refer: Vec<Symbol>,
+    refer_macros: Vec<Symbol>,
+    rename: Vec<(String, Symbol)>,
+    rename_macros: Vec<(String, Symbol)>,
+    include_macros: bool,
+}
+
+impl RequireSpec {
+    fn new(ns: Symbol) -> Self {
+        Self {
+            ns,
+            alias: None,
+            refer: Vec::new(),
+            refer_macros: Vec::new(),
+            rename: Vec::new(),
+            rename_macros: Vec::new(),
+            include_macros: false,
+        }
+    }
+}
+
+fn parse_require_spec(form: Form, macro_only: bool) -> Result<RequireSpec, AnalyzerError> {
+    let original = form.clone();
+    let FormKind::Vector(items) = form.value else {
+        return Err(AnalyzerError::new(
+            "require specs must be vectors",
+            original,
+        ));
+    };
+    let Some(first) = items.first() else {
+        return Err(AnalyzerError::new(
+            "require specs must include a namespace symbol",
+            original,
+        ));
+    };
+    let ns = expect_symbol(first.clone())?;
+    let mut spec = RequireSpec::new(ns);
+
+    let mut idx = 1usize;
+    while idx < items.len() {
+        let FormKind::Keyword(keyword) = &items[idx].value else {
+            return Err(AnalyzerError::new(
+                "require options must be keywords",
+                items[idx].clone(),
+            ));
+        };
+        let option = keyword.name();
+        let value = items.get(idx + 1).cloned().ok_or_else(|| {
+            AnalyzerError::new("require option is missing a value", items[idx].clone())
+        })?;
+        match option {
+            "as" => {
+                spec.alias = Some(expect_symbol(value)?.to_string());
+            }
+            "refer" => {
+                spec.refer = expect_symbol_vector(value)?;
+            }
+            "refer-macros" => {
+                spec.refer_macros = expect_symbol_vector(value)?;
+            }
+            "rename" => {
+                spec.rename = expect_rename_map(value)?;
+            }
+            "rename-macros" => {
+                spec.rename_macros = expect_rename_map(value)?;
+            }
+            "include-macros" => {
+                spec.include_macros = matches!(value.value, FormKind::Bool(true));
+            }
+            _ => {}
+        }
+        idx += 2;
+    }
+
+    if macro_only {
+        spec.refer.extend(spec.refer_macros.clone());
+        spec.rename.extend(spec.rename_macros.clone());
+    }
+
+    Ok(spec)
+}
+
+fn expect_symbol_vector(form: Form) -> Result<Vec<Symbol>, AnalyzerError> {
+    let FormKind::Vector(items) = form.value else {
+        return Err(AnalyzerError::new("expected a vector of symbols", form));
+    };
+    items.into_iter().map(expect_symbol).collect()
+}
+
+fn expect_rename_map(form: Form) -> Result<Vec<(String, Symbol)>, AnalyzerError> {
+    let FormKind::Map(entries) = form.value else {
+        return Err(AnalyzerError::new("expected a rename map", form));
+    };
+    entries
+        .into_iter()
+        .map(|(from, to)| Ok((expect_symbol(from)?.name().to_string(), expect_symbol(to)?)))
+        .collect()
+}
+
+fn macro_ns(ns: &Symbol) -> Symbol {
+    if ns.to_string().ends_with("$macros") {
+        ns.clone()
+    } else {
+        Symbol::parse(&format!("{ns}$macros"))
+    }
+}
+
+fn resolve_symbol(state: &CompilerState, env: &AnalysisEnv, symbol: &Symbol) -> Symbol {
+    if symbol.is_qualified() {
+        if let Some(analysis) = state.namespace_analysis(&env.ns) {
+            if let Some(alias_target) = symbol
+                .namespace()
+                .and_then(|alias| analysis.requires.get(alias))
+            {
+                return Symbol::parse(&format!("{}/{}", alias_target, symbol.name()));
+            }
+            if let Some(rename_target) = analysis.renames.get(symbol.name()) {
+                return rename_target.clone();
+            }
+        }
+        symbol.clone()
+    } else if let Some(analysis) = state.namespace_analysis(&env.ns) {
+        analysis
+            .uses
+            .get(symbol.name())
+            .cloned()
+            .unwrap_or_else(|| symbol.clone())
+    } else {
+        symbol.clone()
     }
 }
 

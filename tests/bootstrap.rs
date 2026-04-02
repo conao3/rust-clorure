@@ -40,6 +40,7 @@ fn load_analysis_cache_merges_precomputed_namespaces() {
         NamespaceAnalysis {
             publics: vec![Symbol::parse("demo.core/x")],
             bootstrap: false,
+            ..NamespaceAnalysis::default()
         },
     );
     dump.vars

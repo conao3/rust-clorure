@@ -203,6 +203,7 @@ impl Session {
     pub fn load_ns(&mut self, ns: &Symbol, env: AnalysisEnv) -> Result<EvalOutcome, String> {
         let source = self.loader.load_ns(ns)?;
         self.source_cache.insert(ns.to_string(), source.clone());
+        self.preload_required_namespaces(&source, ns)?;
         self.eval_str(&source, env.with_ns(ns.clone()))
     }
 
@@ -211,6 +212,37 @@ impl Session {
             .lock()
             .expect("globals mutex should not be poisoned")
             .clone()
+    }
+
+    fn preload_required_namespaces(&mut self, source: &str, ns: &Symbol) -> Result<(), String> {
+        let forms = crate::clorure::reader::read_all(source).map_err(|error| error.message)?;
+        let Some(first) = forms.first() else {
+            return Ok(());
+        };
+        if !matches!(first.value, crate::clorure::forms::FormKind::List(_)) {
+            return Ok(());
+        }
+        let _ = analyze(
+            first.clone(),
+            &mut self.compiler_state,
+            AnalysisEnv::default(),
+        )
+        .map_err(|error| error.to_string())?;
+        let Some(analysis) = self.compiler_state.namespace_analysis(ns).cloned() else {
+            return Ok(());
+        };
+
+        for required in analysis.requires.into_values() {
+            if required != *ns && !self.source_cache.contains_key(&required.to_string()) {
+                let _ = self.load_ns(&required, AnalysisEnv::default())?;
+            }
+        }
+        for required in analysis.require_macros.into_values() {
+            if required != *ns && !self.source_cache.contains_key(&required.to_string()) {
+                let _ = self.load_ns(&required, AnalysisEnv::default())?;
+            }
+        }
+        Ok(())
     }
 }
 
