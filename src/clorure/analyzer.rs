@@ -512,7 +512,10 @@ fn parse_ns_metadata(
                         );
                     }
                     for renamed in parsed.rename {
-                        analysis.renames.insert(renamed.0, renamed.1);
+                        analysis.renames.insert(
+                            renamed.1.name().to_string(),
+                            renamed.0.qualify(parsed.ns.to_string()),
+                        );
                     }
                     if parsed.include_macros
                         || !parsed.refer_macros.is_empty()
@@ -527,7 +530,10 @@ fn parse_ns_metadata(
                         );
                     }
                     for renamed in parsed.rename_macros {
-                        analysis.rename_macros.insert(renamed.0, renamed.1);
+                        analysis.rename_macros.insert(
+                            renamed.1.name().to_string(),
+                            renamed.0.qualify(macro_ns(&parsed.ns).to_string()),
+                        );
                     }
                 }
             }
@@ -543,7 +549,10 @@ fn parse_ns_metadata(
                         );
                     }
                     for renamed in parsed.rename {
-                        analysis.rename_macros.insert(renamed.0, renamed.1);
+                        analysis.rename_macros.insert(
+                            renamed.1.name().to_string(),
+                            renamed.0.qualify(macro_ns(&parsed.ns).to_string()),
+                        );
                     }
                 }
             }
@@ -565,8 +574,8 @@ struct RequireSpec {
     alias: Option<String>,
     refer: Vec<Symbol>,
     refer_macros: Vec<Symbol>,
-    rename: Vec<(String, Symbol)>,
-    rename_macros: Vec<(String, Symbol)>,
+    rename: Vec<(Symbol, Symbol)>,
+    rename_macros: Vec<(Symbol, Symbol)>,
     include_macros: bool,
 }
 
@@ -652,13 +661,13 @@ fn expect_symbol_vector(form: Form) -> Result<Vec<Symbol>, AnalyzerError> {
     items.into_iter().map(expect_symbol).collect()
 }
 
-fn expect_rename_map(form: Form) -> Result<Vec<(String, Symbol)>, AnalyzerError> {
+fn expect_rename_map(form: Form) -> Result<Vec<(Symbol, Symbol)>, AnalyzerError> {
     let FormKind::Map(entries) = form.value else {
         return Err(AnalyzerError::new("expected a rename map", form));
     };
     entries
         .into_iter()
-        .map(|(from, to)| Ok((expect_symbol(from)?.name().to_string(), expect_symbol(to)?)))
+        .map(|(from, to)| Ok((expect_symbol(from)?, expect_symbol(to)?)))
         .collect()
 }
 
@@ -685,6 +694,9 @@ fn resolve_symbol(state: &CompilerState, env: &AnalysisEnv, symbol: &Symbol) -> 
         }
         symbol.clone()
     } else if let Some(analysis) = state.namespace_analysis(&env.ns) {
+        if let Some(renamed) = analysis.renames.get(symbol.name()) {
+            return renamed.clone();
+        }
         analysis
             .uses
             .get(symbol.name())

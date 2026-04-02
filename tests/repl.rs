@@ -131,6 +131,11 @@ fn session_loads_files_and_namespaces() {
         "(ns demo.app (:require [demo.lib :as lib :refer [ping]] [demo.macros :as m :refer-macros [when-demo emit-constant]])) (def via-alias lib/value) (def via-refer ping) (def via-macro (when-demo true 34)) (def via-source-macro (emit-constant))",
     )
     .unwrap();
+    fs::write(
+        temp_root.join("demo/rename-app.cljs"),
+        "(ns demo.rename-app (:require [demo.lib :refer [ping] :rename {ping pong}] [demo.macros :refer-macros [when-demo] :rename-macros {when-demo unless-demo}])) (def via-rename pong) (def via-rename-macro (unless-demo true 89))",
+    )
+    .unwrap();
 
     let file_outcome = session
         .load_file(&file_path, AnalysisEnv::default())
@@ -233,6 +238,26 @@ fn session_loads_files_and_namespaces() {
     assert_eq!(
         helper_alias_eval.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(15))
+    );
+    let rename_outcome = session
+        .load_ns(&Symbol::parse("demo.rename-app"), AnalysisEnv::default())
+        .unwrap();
+    assert!(
+        rename_outcome
+            .produced_vars
+            .contains(&Symbol::parse("demo.rename-app/via-rename"))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.rename-app/via-rename")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(21))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.rename-app/via-rename-macro")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(89))
     );
 
     std::env::set_current_dir(old_dir).unwrap();

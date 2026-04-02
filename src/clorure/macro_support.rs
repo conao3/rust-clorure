@@ -196,12 +196,23 @@ fn resolve_macro<'a>(
         let referred = state
             .namespace_analysis(&env.ns)
             .and_then(|analysis| analysis.use_macros.get(symbol.name()));
+        let renamed = state
+            .namespace_analysis(&env.ns)
+            .and_then(|analysis| analysis.rename_macros.get(symbol.name()));
         state
             .resolve_var(
-                &referred
+                &renamed
                     .cloned()
+                    .or_else(|| referred.cloned())
                     .unwrap_or_else(|| Symbol::parse("__missing__/macro")),
             )
+            .or_else(|| {
+                state.resolve_var(
+                    &referred
+                        .cloned()
+                        .unwrap_or_else(|| Symbol::parse("__missing__/macro")),
+                )
+            })
             .or_else(|| state.resolve_var(&current_macro))
             .or_else(|| state.resolve_var(&qualified))
             .or_else(|| state.resolve_var(symbol))
