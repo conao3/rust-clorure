@@ -29,7 +29,7 @@ fn repl_eval_and_analyze_return_incremental_results() {
     );
 
     let qualified =
-        repl::eval_str(&mut session, "(clojure.core/+ 3 4)", AnalysisEnv::default()).unwrap();
+        repl::eval_str(&mut session, "(clrs.core/+ 3 4)", AnalysisEnv::default()).unwrap();
     assert_eq!(
         qualified.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(7))

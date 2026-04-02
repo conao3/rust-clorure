@@ -27,8 +27,14 @@ impl Loader for FileSystemLoader {
     }
 
     fn load_ns(&self, ns: &Symbol) -> Result<String, String> {
-        let relative = format!("{}.clj", ns.to_string().replace('.', "/"));
-        fs::read_to_string(relative).map_err(|error| error.to_string())
+        let stem = ns.to_string().replace('.', "/");
+        for ext in ["clj", "cljc"] {
+            let relative = format!("{stem}.{ext}");
+            if let Ok(source) = fs::read_to_string(&relative) {
+                return Ok(source);
+            }
+        }
+        Err(format!("namespace source for '{ns}' was not found"))
     }
 }
 
@@ -143,6 +149,8 @@ impl Session {
             if let Some(value) = return_value.clone() {
                 for symbol in &program.produced_vars {
                     self.runtime_state.insert(symbol.clone(), value.clone());
+                    self.compiler_state
+                        .register_var(symbol.clone(), value.clone());
                 }
             }
             self.bytecode_cache.insert(cache_key(&env, &ast), program);

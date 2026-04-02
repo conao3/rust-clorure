@@ -6,32 +6,25 @@ use rust_clorure::clorure::runtime::value::Value;
 #[test]
 fn empty_state_preloads_core_like_cljs_js() {
     let state = empty_state();
+    assert!(state.namespaces.contains_key(&Symbol::parse("clrs.core")));
     assert!(
         state
             .namespaces
-            .contains_key(&Symbol::parse("clojure.core"))
+            .contains_key(&Symbol::parse("clrs.core$macros"))
     );
-    assert!(
-        state
-            .namespaces
-            .contains_key(&Symbol::parse("clorure.core"))
-    );
-    assert!(state.vars.contains_key(&Symbol::parse("clojure.core/+")));
+    assert!(state.vars.contains_key(&Symbol::parse("clrs.core/+")));
     assert_eq!(
-        state.source_maps.get(&Symbol::parse("clojure.core")),
-        Some(&"bootstrap://clojure/core".to_string())
+        state.source_maps.get(&Symbol::parse("clrs.core")),
+        Some(&"bootstrap://clrs/core".to_string())
     );
-    assert!(state.namespaces[&Symbol::parse("clojure.core")].bootstrap);
+    assert!(state.namespaces[&Symbol::parse("clrs.core")].bootstrap);
 }
 
 #[test]
 fn dump_core_extracts_bootstrap_cache() {
     let dump = dump_core();
-    assert!(dump.namespaces.contains_key(&Symbol::parse("clojure.core")));
-    assert!(
-        dump.vars
-            .contains_key(&Symbol::parse("clojure.core/vector"))
-    );
+    assert!(dump.namespaces.contains_key(&Symbol::parse("clrs.core")));
+    assert!(dump.vars.contains_key(&Symbol::parse("clrs.core/vector")));
 }
 
 #[test]
