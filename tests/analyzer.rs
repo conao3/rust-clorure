@@ -107,6 +107,33 @@ fn analyzer_resolves_renamed_refers() {
 }
 
 #[test]
+fn analyzer_expands_refer_all_when_publics_are_known() {
+    let forms = read_all("(ns demo.app (:require [demo.lib :refer :all])) value").unwrap();
+    let mut state = CompilerState::default();
+    state.register_ns(Symbol::parse("demo.lib"));
+    state.register_var(Symbol::parse("demo.lib/value"), Value::Int(1));
+    state.register_var(Symbol::parse("demo.lib/ping"), Value::Int(2));
+
+    analyze(forms[0].clone(), &mut state, AnalysisEnv::default()).unwrap();
+    let ns = state
+        .namespace_analysis(&Symbol::parse("demo.app"))
+        .expect("ns analysis should exist");
+    assert_eq!(ns.uses.get("value"), Some(&Symbol::parse("demo.lib/value")));
+    assert_eq!(ns.uses.get("ping"), Some(&Symbol::parse("demo.lib/ping")));
+
+    let referred = analyze(
+        forms[1].clone(),
+        &mut state,
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.app")),
+    )
+    .unwrap();
+    assert_eq!(
+        referred.attrs.get("symbol"),
+        Some(&Value::symbol(Symbol::parse("demo.lib/value")))
+    );
+}
+
+#[test]
 fn analyzer_tracks_let_locals_and_unresolved_warnings() {
     let forms = read_all("(let [x 1] (+ x y))").unwrap();
     let mut state = CompilerState::default();

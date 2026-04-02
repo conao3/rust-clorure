@@ -106,7 +106,7 @@ fn evaluate_bootstrap_source(
         };
         let mut vm = Vm::with_globals(runtime_state.clone());
         let value = vm.run(&program).map_err(|error| error.message)?;
-        *runtime_state = vm.globals;
+        *runtime_state = vm.snapshot_globals();
         for symbol in &program.produced_vars {
             state.register_var(
                 symbol.clone(),

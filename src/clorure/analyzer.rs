@@ -155,7 +155,7 @@ fn analyze_ns(
         .cloned()
         .ok_or_else(|| AnalyzerError::new("ns requires a namespace symbol", form.clone()))?;
     let ns_symbol = expect_symbol(ns_form)?;
-    let analysis = parse_ns_metadata(&ns_symbol, &args[1..])?;
+    let analysis = parse_ns_metadata(state, &ns_symbol, &args[1..])?;
     state.register_ns_with_analysis(ns_symbol.clone(), analysis.clone());
     Ok(
         AstNode::new(AstOp::Ns, env.with_ns(ns_symbol.clone()), form)
@@ -477,6 +477,7 @@ fn expect_symbol(form: Form) -> Result<Symbol, AnalyzerError> {
 }
 
 fn parse_ns_metadata(
+    state: &CompilerState,
     ns_symbol: &Symbol,
     clauses: &[Form],
 ) -> Result<NamespaceAnalysis, AnalyzerError> {
@@ -511,6 +512,11 @@ fn parse_ns_metadata(
                             referred.qualify(parsed.ns.to_string()),
                         );
                     }
+                    if parsed.refer_all {
+                        for public in namespace_publics(state, &parsed.ns) {
+                            analysis.uses.insert(public.name().to_string(), public);
+                        }
+                    }
                     for renamed in parsed.rename {
                         analysis.renames.insert(
                             renamed.1.name().to_string(),
@@ -528,6 +534,13 @@ fn parse_ns_metadata(
                             referred.name().to_string(),
                             referred.qualify(macro_ns(&parsed.ns).to_string()),
                         );
+                    }
+                    if parsed.include_macros || parsed.refer_macros_all {
+                        for public in namespace_publics(state, &macro_ns(&parsed.ns)) {
+                            analysis
+                                .use_macros
+                                .insert(public.name().to_string(), public);
+                        }
                     }
                     for renamed in parsed.rename_macros {
                         analysis.rename_macros.insert(
@@ -547,6 +560,13 @@ fn parse_ns_metadata(
                             referred.name().to_string(),
                             referred.qualify(macro_ns(&parsed.ns).to_string()),
                         );
+                    }
+                    if parsed.refer_all {
+                        for public in namespace_publics(state, &macro_ns(&parsed.ns)) {
+                            analysis
+                                .use_macros
+                                .insert(public.name().to_string(), public);
+                        }
                     }
                     for renamed in parsed.rename {
                         analysis.rename_macros.insert(
@@ -573,7 +593,9 @@ struct RequireSpec {
     ns: Symbol,
     alias: Option<String>,
     refer: Vec<Symbol>,
+    refer_all: bool,
     refer_macros: Vec<Symbol>,
+    refer_macros_all: bool,
     rename: Vec<(Symbol, Symbol)>,
     rename_macros: Vec<(Symbol, Symbol)>,
     include_macros: bool,
@@ -585,7 +607,9 @@ impl RequireSpec {
             ns,
             alias: None,
             refer: Vec::new(),
+            refer_all: false,
             refer_macros: Vec::new(),
+            refer_macros_all: false,
             rename: Vec::new(),
             rename_macros: Vec::new(),
             include_macros: false,
@@ -627,10 +651,14 @@ fn parse_require_spec(form: Form, macro_only: bool) -> Result<RequireSpec, Analy
                 spec.alias = Some(expect_symbol(value)?.to_string());
             }
             "refer" => {
-                spec.refer = expect_symbol_vector(value)?;
+                let refer = parse_refer_value(value)?;
+                spec.refer = refer.symbols;
+                spec.refer_all = refer.all;
             }
             "refer-macros" => {
-                spec.refer_macros = expect_symbol_vector(value)?;
+                let refer = parse_refer_value(value)?;
+                spec.refer_macros = refer.symbols;
+                spec.refer_macros_all = refer.all;
             }
             "rename" => {
                 spec.rename = expect_rename_map(value)?;
@@ -654,11 +682,30 @@ fn parse_require_spec(form: Form, macro_only: bool) -> Result<RequireSpec, Analy
     Ok(spec)
 }
 
-fn expect_symbol_vector(form: Form) -> Result<Vec<Symbol>, AnalyzerError> {
-    let FormKind::Vector(items) = form.value else {
-        return Err(AnalyzerError::new("expected a vector of symbols", form));
-    };
-    items.into_iter().map(expect_symbol).collect()
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ReferSpec {
+    symbols: Vec<Symbol>,
+    all: bool,
+}
+
+fn parse_refer_value(form: Form) -> Result<ReferSpec, AnalyzerError> {
+    match form.value {
+        FormKind::Keyword(keyword) if keyword.name() == "all" => Ok(ReferSpec {
+            symbols: Vec::new(),
+            all: true,
+        }),
+        FormKind::Vector(items) => Ok(ReferSpec {
+            symbols: items
+                .into_iter()
+                .map(expect_symbol)
+                .collect::<Result<_, _>>()?,
+            all: false,
+        }),
+        _ => Err(AnalyzerError::new(
+            "expected :all or a vector of symbols",
+            form,
+        )),
+    }
 }
 
 fn expect_rename_map(form: Form) -> Result<Vec<(Symbol, Symbol)>, AnalyzerError> {
@@ -677,6 +724,13 @@ fn macro_ns(ns: &Symbol) -> Symbol {
     } else {
         Symbol::parse(&format!("{ns}$macros"))
     }
+}
+
+fn namespace_publics(state: &CompilerState, ns: &Symbol) -> Vec<Symbol> {
+    state
+        .namespace_analysis(ns)
+        .map(|analysis| analysis.publics.clone())
+        .unwrap_or_default()
 }
 
 fn resolve_symbol(state: &CompilerState, env: &AnalysisEnv, symbol: &Symbol) -> Symbol {
