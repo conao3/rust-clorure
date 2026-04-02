@@ -9,14 +9,37 @@ pub type VarId = u64;
 pub struct Var {
     pub ns: Symbol,
     pub sym: Symbol,
-    pub value: Value,
+    pub root: Value,
+    pub dynamic: bool,
     pub meta: MetaMap,
+    pub binding_stack: Vec<Value>,
+}
+
+impl Var {
+    pub fn current_value(&self) -> &Value {
+        self.binding_stack.last().unwrap_or(&self.root)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Namespace {
     pub name: Symbol,
+    pub aliases: HashMap<Symbol, Symbol>,
+    pub refers: HashMap<Symbol, VarId>,
     pub publics: HashMap<Symbol, VarId>,
+    pub imports: HashMap<Symbol, String>,
+}
+
+impl Namespace {
+    pub fn new(name: Symbol) -> Self {
+        Self {
+            name,
+            aliases: HashMap::new(),
+            refers: HashMap::new(),
+            publics: HashMap::new(),
+            imports: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -31,7 +54,20 @@ impl NamespaceRegistry {
         Self::default()
     }
 
-    pub fn intern(&mut self, ns: Symbol, sym: Symbol, value: Value, meta: MetaMap) -> VarId {
+    pub fn ensure_namespace(&mut self, ns: Symbol) -> &mut Namespace {
+        self.namespaces
+            .entry(ns.clone())
+            .or_insert_with(|| Namespace::new(ns))
+    }
+
+    pub fn intern(
+        &mut self,
+        ns: Symbol,
+        sym: Symbol,
+        root: Value,
+        dynamic: bool,
+        meta: MetaMap,
+    ) -> VarId {
         let var_id = self.next_var_id;
         self.next_var_id += 1;
 
@@ -40,30 +76,73 @@ impl NamespaceRegistry {
             Var {
                 ns: ns.clone(),
                 sym: sym.clone(),
-                value,
+                root,
+                dynamic,
                 meta,
+                binding_stack: Vec::new(),
             },
         );
 
-        self.namespaces
-            .entry(ns.clone())
-            .or_insert_with(|| Namespace {
-                name: ns,
-                publics: HashMap::new(),
-            })
-            .publics
-            .insert(sym, var_id);
-
+        self.ensure_namespace(ns).publics.insert(sym, var_id);
         var_id
+    }
+
+    pub fn alias_namespace(&mut self, ns: &Symbol, alias: Symbol, target: Symbol) {
+        self.ensure_namespace(ns.clone())
+            .aliases
+            .insert(alias, target);
+    }
+
+    pub fn refer_var(&mut self, ns: &Symbol, alias: Symbol, var_id: VarId) {
+        self.ensure_namespace(ns.clone())
+            .refers
+            .insert(alias, var_id);
+    }
+
+    pub fn import_symbol(&mut self, ns: &Symbol, alias: Symbol, target: String) {
+        self.ensure_namespace(ns.clone())
+            .imports
+            .insert(alias, target);
     }
 
     pub fn get_var(&self, var_id: VarId) -> Option<&Var> {
         self.vars.get(&var_id)
     }
 
-    pub fn resolve(&self, ns: &Symbol, sym: &Symbol) -> Option<&Var> {
+    pub fn get_var_mut(&mut self, var_id: VarId) -> Option<&mut Var> {
+        self.vars.get_mut(&var_id)
+    }
+
+    pub fn resolve_public(&self, ns: &Symbol, sym: &Symbol) -> Option<&Var> {
         let namespace = self.namespaces.get(ns)?;
-        let var_id = namespace.publics.get(sym)?;
+        let var_id = namespace
+            .publics
+            .get(sym)
+            .or_else(|| namespace.refers.get(sym))?;
         self.vars.get(var_id)
+    }
+
+    pub fn resolve_alias(&self, ns: &Symbol, alias: &Symbol) -> Option<&Symbol> {
+        self.namespaces.get(ns)?.aliases.get(alias)
+    }
+
+    pub fn swap_root(&mut self, var_id: VarId, root: Value) -> Option<()> {
+        let var = self.vars.get_mut(&var_id)?;
+        var.root = root;
+        Some(())
+    }
+
+    pub fn push_binding(&mut self, var_id: VarId, value: Value) -> Option<()> {
+        let var = self.vars.get_mut(&var_id)?;
+        if var.dynamic {
+            var.binding_stack.push(value);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    pub fn pop_binding(&mut self, var_id: VarId) -> Option<Value> {
+        self.vars.get_mut(&var_id)?.binding_stack.pop()
     }
 }
