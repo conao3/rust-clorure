@@ -142,6 +142,37 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(3))
     );
 
+    let thread_last =
+        repl::eval_str(&mut session, "(->> 1 (+ 2) (+ 3))", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        thread_last.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(6))
+    );
+
+    let and_value = repl::eval_str(&mut session, "(and true 1 2)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        and_value.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(2))
+    );
+
+    let or_value =
+        repl::eval_str(&mut session, "(or nil false 9)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        or_value.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(9))
+    );
+
+    let cond_value = repl::eval_str(
+        &mut session,
+        "(cond false 1 nil 2 :else 3)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        cond_value.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(3))
+    );
+
     let when_let = repl::eval_str(
         &mut session,
         "(when-let [x 5] (+ x 1))",

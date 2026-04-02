@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::clorure::env::CompilerState;
-use crate::clorure::forms::{Form, FormKind, Symbol};
+use crate::clorure::forms::{Form, FormKind, ReaderMeta, Symbol};
 use crate::clorure::runtime::builtin::{BuiltinError, BuiltinFn, BuiltinRegistry, CallContext};
 use crate::clorure::runtime::value::{FnValue, NativeFn, Value};
 
@@ -316,6 +316,100 @@ fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
         }),
     ));
 
+    let thread_last_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/->>"));
+    values.push((
+        thread_last_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(thread_last_symbol),
+            arity: usize::MAX,
+            func: Arc::new(|args| {
+                let Some((first, rest)) = args.split_first() else {
+                    return Err("->> expects at least one form".to_string());
+                };
+                let mut current = expect_macro_form(first)?;
+                for step in rest {
+                    let step_form = expect_macro_form(step)?;
+                    current = match step_form.value {
+                        FormKind::Symbol(symbol) => Form::new(
+                            FormKind::List(vec![
+                                Form::new(FormKind::Symbol(symbol), step_form.meta.clone()),
+                                current,
+                            ]),
+                            step_form.meta.clone(),
+                        ),
+                        FormKind::List(mut items) => {
+                            if items.is_empty() {
+                                return Err("->> steps cannot be empty lists".to_string());
+                            }
+                            let mut threaded = Vec::with_capacity(items.len() + 1);
+                            threaded.push(items.remove(0));
+                            threaded.extend(items);
+                            threaded.push(current);
+                            Form::new(FormKind::List(threaded), step_form.meta.clone())
+                        }
+                        _ => return Err("->> steps must be symbols or lists".to_string()),
+                    };
+                }
+                Ok(Value::Form(Box::new(current)))
+            }),
+            meta: None,
+        }),
+    ));
+
+    let and_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/and"));
+    values.push((
+        and_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(and_symbol),
+            arity: usize::MAX,
+            func: Arc::new(|args| {
+                let forms = args
+                    .iter()
+                    .map(expect_macro_form)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Value::Form(Box::new(expand_and(&forms))))
+            }),
+            meta: None,
+        }),
+    ));
+
+    let or_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/or"));
+    values.push((
+        or_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(or_symbol),
+            arity: usize::MAX,
+            func: Arc::new(|args| {
+                let forms = args
+                    .iter()
+                    .map(expect_macro_form)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Value::Form(Box::new(expand_or(&forms))))
+            }),
+            meta: None,
+        }),
+    ));
+
+    let cond_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/cond"));
+    values.push((
+        cond_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(cond_symbol),
+            arity: usize::MAX,
+            func: Arc::new(|args| {
+                let clauses = args
+                    .iter()
+                    .map(expect_macro_form)
+                    .collect::<Result<Vec<_>, _>>()?;
+                if clauses.len() % 2 != 0 {
+                    return Err("cond expects an even number of forms".to_string());
+                }
+                Ok(Value::Form(Box::new(expand_cond(&clauses))))
+            }),
+            meta: None,
+        }),
+    ));
+
     let when_let_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/when-let"));
     values.push((
         when_let_symbol.clone(),
@@ -401,6 +495,63 @@ fn expect_macro_form(value: &Value) -> Result<Form, String> {
     match value {
         Value::Form(form) => Ok((**form).clone()),
         _ => Err("macro expects reader forms".to_string()),
+    }
+}
+
+fn default_meta() -> ReaderMeta {
+    ReaderMeta::new(1, 1, 1, 1, None)
+}
+
+fn expand_and(forms: &[Form]) -> Form {
+    match forms {
+        [] => Form::new(FormKind::Bool(true), default_meta()),
+        [single] => single.clone(),
+        [first, rest @ ..] => Form::new(
+            FormKind::List(vec![
+                Form::symbol(None, "if", first.meta.clone()),
+                first.clone(),
+                expand_and(rest),
+                Form::new(FormKind::Bool(false), first.meta.clone()),
+            ]),
+            first.meta.clone(),
+        ),
+    }
+}
+
+fn expand_or(forms: &[Form]) -> Form {
+    match forms {
+        [] => Form::new(FormKind::Nil, default_meta()),
+        [single] => single.clone(),
+        [first, rest @ ..] => Form::new(
+            FormKind::List(vec![
+                Form::symbol(None, "if", first.meta.clone()),
+                first.clone(),
+                first.clone(),
+                expand_or(rest),
+            ]),
+            first.meta.clone(),
+        ),
+    }
+}
+
+fn expand_cond(clauses: &[Form]) -> Form {
+    match clauses {
+        [] => Form::new(FormKind::Nil, default_meta()),
+        [test, expr, rest @ ..] => {
+            if matches!(&test.value, FormKind::Keyword(keyword) if keyword.name() == "else") {
+                return expr.clone();
+            }
+            Form::new(
+                FormKind::List(vec![
+                    Form::symbol(None, "if", test.meta.clone()),
+                    test.clone(),
+                    expr.clone(),
+                    expand_cond(rest),
+                ]),
+                test.meta.clone(),
+            )
+        }
+        _ => Form::new(FormKind::Nil, default_meta()),
     }
 }
 
