@@ -121,6 +121,35 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Bool(false))
     );
 
+    let some = repl::eval_str(&mut session, "(some? 1)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        some.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Bool(true))
+    );
+
+    let seq = repl::eval_str(&mut session, "(seq (vector 4 5))", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        seq.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::list(vec![
+            rust_clorure::clorure::runtime::value::Value::Int(4),
+            rust_clorure::clorure::runtime::value::Value::Int(5),
+        ]))
+    );
+
+    let empty =
+        repl::eval_str(&mut session, "(empty (vector 4 5))", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        empty.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::vector(vec![]))
+    );
+
+    let apply =
+        repl::eval_str(&mut session, "(apply + (list 3 4))", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        apply.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(7))
+    );
+
     let when_not =
         repl::eval_str(&mut session, "(when-not false 12)", AnalysisEnv::default()).unwrap();
     assert_eq!(

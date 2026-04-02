@@ -11,6 +11,10 @@
 (def conj clorure.bootstrap.primitives/conj)
 (def nth clorure.bootstrap.primitives/nth)
 (def boolean clorure.bootstrap.primitives/boolean)
+(def some? clorure.bootstrap.primitives/some?)
+(def seq clorure.bootstrap.primitives/seq)
+(def empty clorure.bootstrap.primitives/empty)
+(def apply clorure.bootstrap.primitives/apply)
 
 (def identity (fn [x] x))
 (def inc (fn [x] (+ x 1)))

@@ -72,6 +72,7 @@ pub fn install_phase1(registry: &mut BuiltinRegistry) {
     for namespace in [CORE_NS, "clorure.core"] {
         for name in [
             "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
+            "some?", "seq", "empty", "apply",
         ] {
             register_core_symbol(registry, namespace, name, core_builtin(name));
         }
@@ -181,6 +182,7 @@ fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
     let mut values = Vec::new();
     for name in [
         "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
+        "some?", "seq", "empty", "apply",
     ] {
         let symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/{name}"));
         values.push((
@@ -622,6 +624,49 @@ fn core_builtin(name: &str) -> BuiltinFn {
             [Value::Bool(false)] => Ok(Value::Bool(false)),
             [_] => Ok(Value::Bool(true)),
             _ => Err(BuiltinError::new("boolean expects one value")),
+        }),
+        "some?" => Arc::new(|args, _| match args {
+            [Value::Nil] => Ok(Value::Bool(false)),
+            [_] => Ok(Value::Bool(true)),
+            _ => Err(BuiltinError::new("some? expects one value")),
+        }),
+        "seq" => Arc::new(|args, _| match args {
+            [Value::Nil] => Ok(Value::Nil),
+            [Value::List(list)] if list.items.is_empty() => Ok(Value::Nil),
+            [Value::List(list)] => Ok(Value::list((*list.items).clone())),
+            [Value::Vector(vector)] if vector.items.is_empty() => Ok(Value::Nil),
+            [Value::Vector(vector)] => Ok(Value::list((*vector.items).clone())),
+            _ => Err(BuiltinError::new("seq expects nil, a list, or a vector")),
+        }),
+        "empty" => Arc::new(|args, _| match args {
+            [Value::Nil] => Ok(Value::Nil),
+            [Value::List(_)] => Ok(Value::list(Vec::new())),
+            [Value::Vector(_)] => Ok(Value::vector(Vec::new())),
+            [Value::Map(_)] => Ok(Value::map(Vec::new())),
+            [Value::Set(_)] => Ok(Value::set(Vec::new())),
+            _ => Err(BuiltinError::new(
+                "empty expects nil or a persistent collection",
+            )),
+        }),
+        "apply" => Arc::new(|args, _| {
+            let Some((function, rest)) = args.split_first() else {
+                return Err(BuiltinError::new("apply expects a function and arguments"));
+            };
+            let Some((last, leading)) = rest.split_last() else {
+                return Err(BuiltinError::new("apply expects a final sequence argument"));
+            };
+            let mut expanded = leading.to_vec();
+            match last {
+                Value::List(list) => expanded.extend(list.items.iter().cloned()),
+                Value::Vector(vector) => expanded.extend(vector.items.iter().cloned()),
+                Value::Nil => {}
+                _ => {
+                    return Err(BuiltinError::new(
+                        "apply expects the final argument to be nil, a list, or a vector",
+                    ));
+                }
+            }
+            function.invoke(&expanded).map_err(BuiltinError::new)
         }),
         _ => Arc::new(|_, _| Err(BuiltinError::new("unknown core builtin"))),
     }
