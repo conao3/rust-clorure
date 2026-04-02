@@ -2,6 +2,7 @@ pub mod analyzer;
 pub mod aot;
 pub mod ast;
 pub mod backend;
+pub mod bootstrap;
 pub mod compiler;
 pub mod core;
 pub mod env;

@@ -27,11 +27,18 @@ pub struct ProtocolDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NamespaceAnalysis {
+    pub publics: Vec<Symbol>,
+    pub bootstrap: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CompilerState {
-    pub namespaces: HashMap<Symbol, Vec<Symbol>>,
+    pub namespaces: HashMap<Symbol, NamespaceAnalysis>,
     pub vars: HashMap<Symbol, Value>,
     pub protocol_definitions: Vec<ProtocolDefinition>,
     pub constant_table: Vec<Value>,
+    pub source_maps: HashMap<Symbol, String>,
     pub warnings: Vec<CompilerWarning>,
 }
 
@@ -46,6 +53,14 @@ impl CompilerState {
     }
 
     pub fn register_var(&mut self, symbol: Symbol, value: Value) {
+        if symbol.is_qualified() {
+            let ns = Symbol::parse(symbol.namespace().unwrap_or("user"));
+            self.namespaces
+                .entry(ns)
+                .or_default()
+                .publics
+                .push(symbol.clone());
+        }
         self.vars.insert(symbol, value);
     }
 
@@ -59,6 +74,14 @@ impl CompilerState {
 
     pub fn register_ns(&mut self, ns: Symbol) {
         self.namespaces.entry(ns).or_default();
+    }
+
+    pub fn register_ns_with_analysis(&mut self, ns: Symbol, analysis: NamespaceAnalysis) {
+        self.namespaces.insert(ns, analysis);
+    }
+
+    pub fn load_source_map(&mut self, ns: Symbol, source_map: String) {
+        self.source_maps.insert(ns, source_map);
     }
 }
 
