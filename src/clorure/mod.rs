@@ -3,6 +3,7 @@ pub mod aot;
 pub mod ast;
 pub mod backend;
 pub mod compiler;
+pub mod core;
 pub mod env;
 pub mod forms;
 pub mod interop;
