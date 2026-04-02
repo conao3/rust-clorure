@@ -1,10 +1,12 @@
 use std::fs;
+use std::sync::Arc;
 
 use rust_clorure::clorure::analyzer::analyze;
 use rust_clorure::clorure::aot::{AotManifest, emit_with_manifest};
 use rust_clorure::clorure::env::{AnalysisEnv, CompilerState};
 use rust_clorure::clorure::forms::Symbol;
 use rust_clorure::clorure::repl;
+use rust_clorure::clorure::runtime::value::{FnValue, Value};
 use rust_clorure::clorure::session::Session;
 
 #[test]
@@ -52,6 +54,18 @@ fn repl_eval_and_analyze_return_incremental_results() {
         empty.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Bool(true))
     );
+
+    session.bind_global(
+        Symbol::parse("+"),
+        Value::Fn(FnValue {
+            name: Some(Symbol::parse("+")),
+            arity: 2,
+            func: Arc::new(|_| Ok(Value::Int(99))),
+            meta: None,
+        }),
+    );
+    let rebound = repl::eval_str(&mut session, "(inc 1)", AnalysisEnv::default()).unwrap();
+    assert_eq!(rebound.return_value, Some(Value::Int(99)));
 }
 
 #[test]

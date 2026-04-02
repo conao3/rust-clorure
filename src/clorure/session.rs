@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::clorure::analyzer::{AnalyzerError, analyze};
 use crate::clorure::ast::AstNode;
-use crate::clorure::backend::bytecode::{BytecodeProgram, Vm};
+use crate::clorure::backend::bytecode::{BytecodeProgram, SharedGlobals, Vm};
 use crate::clorure::bootstrap;
 use crate::clorure::compiler::{BackendTarget, CompiledArtifact, compile};
 use crate::clorure::env::{AnalysisEnv, CompilerState, CompilerWarning};
@@ -49,26 +49,17 @@ impl Loader for FileSystemLoader {
 }
 
 pub trait Evaluator: Send + Sync {
-    fn eval(
-        &self,
-        globals: &mut HashMap<Symbol, Value>,
-        program: &BytecodeProgram,
-    ) -> Result<Value, String>;
+    fn eval(&self, globals: &SharedGlobals, program: &BytecodeProgram) -> Result<Value, String>;
 }
 
 #[derive(Default)]
 pub struct VmEvaluator;
 
 impl Evaluator for VmEvaluator {
-    fn eval(
-        &self,
-        globals: &mut HashMap<Symbol, Value>,
-        program: &BytecodeProgram,
-    ) -> Result<Value, String> {
-        let mut vm = Vm::with_globals(globals.clone());
-        let value = vm.run(program).map_err(|error| error.message)?;
-        *globals = vm.globals;
-        Ok(value)
+    fn eval(&self, globals: &SharedGlobals, program: &BytecodeProgram) -> Result<Value, String> {
+        Vm::with_shared_globals(Arc::clone(globals))
+            .run(program)
+            .map_err(|error| error.message)
     }
 }
 
@@ -92,6 +83,7 @@ pub struct Session {
     pub source_cache: HashMap<String, String>,
     pub bytecode_cache: HashMap<String, BytecodeProgram>,
     pub builtin_registry: BuiltinRegistry,
+    shared_globals: SharedGlobals,
     loader: Arc<dyn Loader>,
     evaluator: Arc<dyn Evaluator>,
 }
@@ -101,15 +93,30 @@ impl Default for Session {
         let mut builtin_registry = BuiltinRegistry::new();
         crate::clorure::core::install_phase1(&mut builtin_registry);
         let compiler_state = bootstrap::empty_state();
-        Self {
-            runtime_state: bootstrap::bootstrap_runtime_state(&compiler_state),
+        let runtime_state = bootstrap::bootstrap_runtime_state(&compiler_state);
+        let mut session = Self {
+            shared_globals: Arc::new(Mutex::new(runtime_state.clone())),
+            runtime_state,
             compiler_state,
             source_cache: HashMap::new(),
             bytecode_cache: HashMap::new(),
             builtin_registry,
             loader: Arc::new(FileSystemLoader),
             evaluator: Arc::new(VmEvaluator),
-        }
+        };
+        session
+            .load_ns(
+                &Symbol::parse(crate::clorure::core::CORE_NS),
+                AnalysisEnv::default(),
+            )
+            .expect("clrs.core should bootstrap into the default session");
+        session
+            .load_ns(
+                &Symbol::parse(crate::clorure::core::CORE_MACROS_NS),
+                AnalysisEnv::default(),
+            )
+            .expect("clrs.core$macros should bootstrap into the default session");
+        session
     }
 }
 
@@ -120,6 +127,16 @@ impl Session {
             evaluator,
             ..Self::default()
         }
+    }
+
+    pub fn bind_global(&mut self, symbol: Symbol, value: Value) {
+        self.runtime_state.insert(symbol.clone(), value.clone());
+        self.compiler_state
+            .register_var(symbol.clone(), value.clone());
+        self.shared_globals
+            .lock()
+            .expect("globals mutex should not be poisoned")
+            .insert(symbol, value);
     }
 
     pub fn analyze_str(
@@ -155,12 +172,14 @@ impl Session {
                 unreachable!();
             };
             produced_vars.extend(program.produced_vars.clone());
-            return_value = Some(self.evaluator.eval(&mut self.runtime_state, &program)?);
+            return_value = Some(self.evaluator.eval(&self.shared_globals, &program)?);
+            self.runtime_state = self.snapshot_globals();
             if let Some(value) = return_value.clone() {
                 for symbol in &program.produced_vars {
-                    self.runtime_state.insert(symbol.clone(), value.clone());
-                    self.compiler_state
-                        .register_var(symbol.clone(), value.clone());
+                    self.bind_global(symbol.clone(), value.clone());
+                    if symbol.namespace() == Some(crate::clorure::core::CORE_NS) {
+                        self.bind_global(Symbol::parse(symbol.name()), value.clone());
+                    }
                 }
             }
             self.bytecode_cache.insert(cache_key(&env, &ast), program);
@@ -185,6 +204,13 @@ impl Session {
         let source = self.loader.load_ns(ns)?;
         self.source_cache.insert(ns.to_string(), source.clone());
         self.eval_str(&source, env.with_ns(ns.clone()))
+    }
+
+    fn snapshot_globals(&self) -> HashMap<Symbol, Value> {
+        self.shared_globals
+            .lock()
+            .expect("globals mutex should not be poisoned")
+            .clone()
     }
 }
 

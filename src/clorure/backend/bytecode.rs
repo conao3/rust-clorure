@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::clorure::ast::{AstNode, AstOp};
 use crate::clorure::forms::{ReaderMeta, Symbol};
@@ -268,18 +268,34 @@ pub struct VmError {
     pub stacktrace: Vec<StackTraceFrame>,
 }
 
+pub type SharedGlobals = Arc<Mutex<HashMap<Symbol, Value>>>;
+
 #[derive(Debug, Clone, Default)]
 pub struct Vm {
-    pub globals: HashMap<Symbol, Value>,
+    globals: SharedGlobals,
     pub debug_mode: bool,
 }
 
 impl Vm {
     pub fn with_globals(globals: HashMap<Symbol, Value>) -> Self {
         Self {
+            globals: Arc::new(Mutex::new(globals)),
+            debug_mode: false,
+        }
+    }
+
+    pub fn with_shared_globals(globals: SharedGlobals) -> Self {
+        Self {
             globals,
             debug_mode: false,
         }
+    }
+
+    pub fn snapshot_globals(&self) -> HashMap<Symbol, Value> {
+        self.globals
+            .lock()
+            .expect("globals mutex should not be poisoned")
+            .clone()
     }
 
     pub fn run(&mut self, program: &BytecodeProgram) -> Result<Value, VmError> {
@@ -305,9 +321,15 @@ impl Vm {
             match instruction {
                 Instruction::Const(value) => stack.push(value),
                 Instruction::LookupVar(symbol) => {
-                    let value = self.globals.get(&symbol).cloned().ok_or_else(|| {
-                        self.error(program, ip, format!("unknown global '{symbol}'"))
-                    })?;
+                    let value = self
+                        .globals
+                        .lock()
+                        .expect("globals mutex should not be poisoned")
+                        .get(&symbol)
+                        .cloned()
+                        .ok_or_else(|| {
+                            self.error(program, ip, format!("unknown global '{symbol}'"))
+                        })?;
                     stack.push(value);
                 }
                 Instruction::LookupLocal(name) => {
@@ -327,7 +349,10 @@ impl Vm {
                     let value = stack
                         .pop()
                         .ok_or_else(|| self.error(program, ip, "stack underflow".to_string()))?;
-                    self.globals.insert(symbol, value.clone());
+                    self.globals
+                        .lock()
+                        .expect("globals mutex should not be poisoned")
+                        .insert(symbol, value.clone());
                     stack.push(value);
                 }
                 Instruction::Call(argc) | Instruction::TailCall(argc) => {
@@ -379,12 +404,12 @@ impl Vm {
                         }
                     }
                     let body = (*body).clone();
-                    let globals_snapshot = self.globals.clone();
+                    let shared_globals = Arc::clone(&self.globals);
                     let closure = FnValue {
                         name: None,
                         arity: params.len(),
                         func: Arc::new(move |args| {
-                            let mut vm = Vm::with_globals(globals_snapshot.clone());
+                            let mut vm = Vm::with_shared_globals(Arc::clone(&shared_globals));
                             let mut frame = captured_locals.clone();
                             for (param, value) in params.iter().zip(args.iter()) {
                                 frame.insert(param.clone(), value.clone());
