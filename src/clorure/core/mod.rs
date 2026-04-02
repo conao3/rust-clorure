@@ -276,7 +276,93 @@ fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
         }),
     ));
 
+    let thread_first_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/->"));
+    values.push((
+        thread_first_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(thread_first_symbol),
+            arity: usize::MAX,
+            func: Arc::new(|args| {
+                let Some((first, rest)) = args.split_first() else {
+                    return Err("-> expects at least one form".to_string());
+                };
+                let mut current = expect_macro_form(first)?;
+                for step in rest {
+                    let step_form = expect_macro_form(step)?;
+                    current = match step_form.value {
+                        FormKind::Symbol(symbol) => Form::new(
+                            FormKind::List(vec![
+                                Form::new(FormKind::Symbol(symbol), step_form.meta.clone()),
+                                current,
+                            ]),
+                            step_form.meta.clone(),
+                        ),
+                        FormKind::List(mut items) => {
+                            if items.is_empty() {
+                                return Err("-> steps cannot be empty lists".to_string());
+                            }
+                            let mut threaded = Vec::with_capacity(items.len() + 1);
+                            threaded.push(items.remove(0));
+                            threaded.push(current);
+                            threaded.extend(items);
+                            Form::new(FormKind::List(threaded), step_form.meta.clone())
+                        }
+                        _ => return Err("-> steps must be symbols or lists".to_string()),
+                    };
+                }
+                Ok(Value::Form(Box::new(current)))
+            }),
+            meta: None,
+        }),
+    ));
+
+    let when_let_symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/when-let"));
+    values.push((
+        when_let_symbol.clone(),
+        Value::Macro(FnValue {
+            name: Some(when_let_symbol),
+            arity: 2,
+            func: Arc::new(|args| match args {
+                [Value::Form(binding_form), Value::Form(body)] => {
+                    let FormKind::Vector(bindings) = &binding_form.value else {
+                        return Err("when-let expects a binding vector".to_string());
+                    };
+                    if bindings.len() != 2 {
+                        return Err("when-let expects exactly one binding pair".to_string());
+                    }
+                    let test_symbol = bindings[0].clone();
+                    let init_expr = bindings[1].clone();
+                    Ok(Value::Form(Box::new(Form::new(
+                        FormKind::List(vec![
+                            Form::symbol(None, "let", binding_form.meta.clone()),
+                            binding_form.as_ref().clone(),
+                            Form::new(
+                                FormKind::List(vec![
+                                    Form::symbol(None, "if", body.meta.clone()),
+                                    test_symbol,
+                                    *body.clone(),
+                                    Form::new(FormKind::Nil, body.meta.clone()),
+                                ]),
+                                body.meta.clone(),
+                            ),
+                        ]),
+                        init_expr.meta.clone(),
+                    ))))
+                }
+                _ => Err("when-let expects a binding vector and a body".to_string()),
+            }),
+            meta: None,
+        }),
+    ));
+
     values
+}
+
+fn expect_macro_form(value: &Value) -> Result<Form, String> {
+    match value {
+        Value::Form(form) => Ok((**form).clone()),
+        _ => Err("macro expects reader forms".to_string()),
+    }
 }
 
 fn core_builtin(name: &str) -> BuiltinFn {

@@ -72,6 +72,17 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(2))
     );
 
+    let third = repl::eval_str(
+        &mut session,
+        "(third (vector 1 2 3 4))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        third.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(3))
+    );
+
     let zero = repl::eval_str(&mut session, "(zero? 0)", AnalysisEnv::default()).unwrap();
     assert_eq!(
         zero.return_value,
@@ -122,6 +133,24 @@ fn repl_eval_and_analyze_return_incremental_results() {
     assert_eq!(
         if_not.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(1))
+    );
+
+    let thread_first =
+        repl::eval_str(&mut session, "(-> 1 inc inc)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        thread_first.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(3))
+    );
+
+    let when_let = repl::eval_str(
+        &mut session,
+        "(when-let [x 5] (+ x 1))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        when_let.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(6))
     );
 
     let defn_call = repl::eval_str(

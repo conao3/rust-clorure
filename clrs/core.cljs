@@ -19,3 +19,4 @@
 (def not (fn [x] (if x false true)))
 (def zero? (fn [x] (= x 0)))
 (def second (fn [coll] (first (rest coll))))
+(def third (fn [coll] (first (rest (rest coll)))))
