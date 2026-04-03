@@ -150,6 +150,22 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(7))
     );
 
+    let concat = repl::eval_str(
+        &mut session,
+        "(concat (list 1 2) (vector 3 4))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        concat.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::list(vec![
+            rust_clorure::clorure::runtime::value::Value::Int(1),
+            rust_clorure::clorure::runtime::value::Value::Int(2),
+            rust_clorure::clorure::runtime::value::Value::Int(3),
+            rust_clorure::clorure::runtime::value::Value::Int(4),
+        ]))
+    );
+
     let when_not =
         repl::eval_str(&mut session, "(when-not false 12)", AnalysisEnv::default()).unwrap();
     assert_eq!(
@@ -299,6 +315,34 @@ fn repl_eval_and_analyze_return_incremental_results() {
     assert_eq!(
         apply_variadic.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(3))
+    );
+
+    let complement = repl::eval_str(
+        &mut session,
+        "((complement nil?) 1)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        complement.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Bool(true))
+    );
+
+    let partial = repl::eval_str(
+        &mut session,
+        "((partial (fn [x y & more] (count more)) 1 2) 3 4)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        partial.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(2))
+    );
+
+    let comp = repl::eval_str(&mut session, "((comp inc inc) 3)", AnalysisEnv::default()).unwrap();
+    assert_eq!(
+        comp.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(5))
     );
 
     session.bind_global(

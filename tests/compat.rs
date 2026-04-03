@@ -108,6 +108,16 @@ fn phase1_core_builtins_cover_basic_seq_workflows() {
             &default_call_context(),
         )
         .unwrap();
+    let concat = registry
+        .invoke(
+            &Symbol::parse("clrs.core/concat"),
+            &[
+                vector.clone(),
+                Value::list(vec![Value::Int(4), Value::Int(5)]),
+            ],
+            &default_call_context(),
+        )
+        .unwrap();
 
     assert_eq!(count, Value::Int(3));
     assert_eq!(first, Value::Int(1));
@@ -121,6 +131,16 @@ fn phase1_core_builtins_cover_basic_seq_workflows() {
     );
     assert_eq!(empty, Value::vector(vec![]));
     assert_eq!(apply, Value::Int(13));
+    assert_eq!(
+        concat,
+        Value::list(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4),
+            Value::Int(5)
+        ])
+    );
 }
 
 #[test]

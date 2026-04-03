@@ -15,6 +15,7 @@
 (def seq clorure.bootstrap.primitives/seq)
 (def empty clorure.bootstrap.primitives/empty)
 (def apply clorure.bootstrap.primitives/apply)
+(def concat clorure.bootstrap.primitives/concat)
 
 (def identity (fn [x] x))
 (def inc (fn [x] (+ x 1)))
@@ -24,3 +25,18 @@
 (def zero? (fn [x] (= x 0)))
 (def second (fn [coll] (first (rest coll))))
 (def third (fn [coll] (first (rest (rest coll)))))
+
+(defn complement [f]
+  (fn [& args]
+    (not (apply f args))))
+
+(defn partial [f & args]
+  (fn [& more]
+    (apply f (concat args more))))
+
+(defn comp
+  ([] identity)
+  ([f] f)
+  ([f g]
+   (fn [& args]
+     (f (apply g args)))))

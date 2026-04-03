@@ -72,7 +72,7 @@ pub fn install_phase1(registry: &mut BuiltinRegistry) {
     for namespace in [CORE_NS, "clorure.core"] {
         for name in [
             "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
-            "some?", "seq", "empty", "apply",
+            "some?", "seq", "empty", "apply", "concat",
         ] {
             register_core_symbol(registry, namespace, name, core_builtin(name));
         }
@@ -182,7 +182,7 @@ fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
     let mut values = Vec::new();
     for name in [
         "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
-        "some?", "seq", "empty", "apply",
+        "some?", "seq", "empty", "apply", "concat",
     ] {
         let symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/{name}"));
         values.push((
@@ -667,6 +667,20 @@ fn core_builtin(name: &str) -> BuiltinFn {
                 }
             }
             function.invoke(&expanded).map_err(BuiltinError::new)
+        }),
+        "concat" => Arc::new(|args, _| {
+            let mut items = Vec::new();
+            for arg in args {
+                match arg {
+                    Value::Nil => {}
+                    Value::List(list) => items.extend(list.items.iter().cloned()),
+                    Value::Vector(vector) => items.extend(vector.items.iter().cloned()),
+                    _ => {
+                        return Err(BuiltinError::new("concat expects nil, lists, or vectors"));
+                    }
+                }
+            }
+            Ok(Value::list(items))
         }),
         _ => Arc::new(|_, _| Err(BuiltinError::new("unknown core builtin"))),
     }
