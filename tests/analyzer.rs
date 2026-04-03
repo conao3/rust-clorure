@@ -180,3 +180,18 @@ fn analyzer_marks_return_context_inside_fn_body() {
     assert_eq!(nested_do.op, AstOp::Do);
     assert_eq!(nested_do.children[1].env.context, AnalysisContext::Return);
 }
+
+#[test]
+fn analyzer_rejects_ambiguous_variadic_method_sets() {
+    let duplicate = read_all("(fn ([x] x) ([y] y))").unwrap().remove(0);
+    let mut state = CompilerState::default();
+    let err = analyze(duplicate, &mut state, AnalysisEnv::default()).unwrap_err();
+    assert!(err.message.contains("duplicate fn arity"));
+
+    let non_terminal_variadic = read_all("(fn ([x & more] x) ([x y] y))").unwrap().remove(0);
+    let err = analyze(non_terminal_variadic, &mut state, AnalysisEnv::default()).unwrap_err();
+    assert!(
+        err.message
+            .contains("variadic fn arity must be the last method")
+    );
+}

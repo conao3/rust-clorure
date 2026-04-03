@@ -481,7 +481,7 @@ fn parse_fn_methods(
     args: &[Form],
     form: &Form,
 ) -> Result<(Option<Symbol>, Vec<ParsedFnMethod>), AnalyzerError> {
-    match args {
+    let parsed = match args {
         [params, body @ ..] if matches!(params.value, FormKind::Vector(_)) => Ok((
             None,
             vec![{
@@ -521,7 +521,9 @@ fn parse_fn_methods(
             "fn requires an optional name and one or more arity clauses",
             form.clone(),
         )),
-    }
+    }?;
+    validate_fn_methods(&parsed.1, form)?;
+    Ok(parsed)
 }
 
 fn is_fn_method_form(form: &Form) -> bool {
@@ -546,6 +548,36 @@ fn parse_fn_method_form(form: Form) -> Result<ParsedFnMethod, AnalyzerError> {
     };
     let (params, rest) = expect_fn_params(params_form.clone())?;
     Ok((params, rest, body_forms.to_vec()))
+}
+
+fn validate_fn_methods(methods: &[ParsedFnMethod], form: &Form) -> Result<(), AnalyzerError> {
+    let mut fixed_arities = std::collections::BTreeSet::new();
+    let mut variadic_seen = false;
+
+    for (idx, (params, rest, _)) in methods.iter().enumerate() {
+        if rest.is_some() {
+            if variadic_seen {
+                return Err(AnalyzerError::new(
+                    "fn cannot define more than one variadic arity",
+                    form.clone(),
+                ));
+            }
+            if idx + 1 != methods.len() {
+                return Err(AnalyzerError::new(
+                    "variadic fn arity must be the last method",
+                    form.clone(),
+                ));
+            }
+            variadic_seen = true;
+        } else if !fixed_arities.insert(params.len()) {
+            return Err(AnalyzerError::new(
+                format!("duplicate fn arity '{}'", params.len()),
+                form.clone(),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn parse_ns_metadata(

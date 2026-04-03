@@ -279,6 +279,17 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(2))
     );
 
+    let exact_over_variadic = repl::eval_str(
+        &mut session,
+        "(defn chooser2 ([x y] 99) ([x y & more] (count more))) (chooser2 1 2)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        exact_over_variadic.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(99))
+    );
+
     let apply_variadic = repl::eval_str(
         &mut session,
         "(apply (fn [x & more] (count more)) 1 (list 2 3 4))",

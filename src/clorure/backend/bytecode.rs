@@ -481,13 +481,7 @@ impl Vm {
                         name: None,
                         arity: usize::MAX,
                         func: Arc::new(move |args| {
-                            let Some(method) = methods.iter().find(|method| {
-                                if method.rest.is_some() {
-                                    args.len() >= method.params.len()
-                                } else {
-                                    method.params.len() == args.len()
-                                }
-                            }) else {
+                            let Some(method) = select_method(&methods, args.len()) else {
                                 return Err(format!(
                                     "no matching arity for {} argument(s)",
                                     args.len()
@@ -613,4 +607,15 @@ fn closure_methods(node: &AstNode) -> Vec<ClosureMethod> {
             body: Box::new(emit(body)),
         })
         .collect()
+}
+
+fn select_method(methods: &[ClosureMethod], argc: usize) -> Option<&ClosureMethod> {
+    methods
+        .iter()
+        .find(|method| method.rest.is_none() && method.params.len() == argc)
+        .or_else(|| {
+            methods
+                .iter()
+                .find(|method| method.rest.is_some() && argc >= method.params.len())
+        })
 }
