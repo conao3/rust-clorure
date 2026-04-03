@@ -235,6 +235,17 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(5))
     );
 
+    let variadic_fn = repl::eval_str(
+        &mut session,
+        "((fn [x & more] (count more)) 1 2 3 4)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        variadic_fn.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(3))
+    );
+
     let multi_arity_defn = repl::eval_str(
         &mut session,
         "(defn sum ([x] (+ x 1)) ([x y] (+ x y))) (sum 4 5)",
@@ -244,6 +255,39 @@ fn repl_eval_and_analyze_return_incremental_results() {
     assert_eq!(
         multi_arity_defn.return_value,
         Some(rust_clorure::clorure::runtime::value::Value::Int(9))
+    );
+
+    let variadic_defn = repl::eval_str(
+        &mut session,
+        "(defn tail-count [x & more] (count more)) (tail-count 4 5 6)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        variadic_defn.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(2))
+    );
+
+    let variadic_multi = repl::eval_str(
+        &mut session,
+        "(defn chooser ([x] x) ([x y & more] (count more))) (chooser 1 2 3 4)",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        variadic_multi.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(2))
+    );
+
+    let apply_variadic = repl::eval_str(
+        &mut session,
+        "(apply (fn [x & more] (count more)) 1 (list 2 3 4))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        apply_variadic.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(3))
     );
 
     session.bind_global(
@@ -297,7 +341,7 @@ fn session_loads_files_and_namespaces() {
     .unwrap();
     fs::write(
         temp_root.join("demo/fnapp.cljs"),
-        "(ns demo.fnapp) (defn plus-two ([x] (+ x 2)) ([x y] (+ x y))) (def via-defn (plus-two 5)) (def via-defn-arity2 (plus-two 5 6))",
+        "(ns demo.fnapp) (defn plus-two ([x] (+ x 2)) ([x y] (+ x y)) ([x y & more] (count more))) (def via-defn (plus-two 5)) (def via-defn-arity2 (plus-two 5 6)) (def via-defn-rest (plus-two 5 6 7 8))",
     )
     .unwrap();
 
@@ -462,6 +506,12 @@ fn session_loads_files_and_namespaces() {
             .runtime_state
             .get(&Symbol::parse("demo.fnapp/via-defn-arity2")),
         Some(&rust_clorure::clorure::runtime::value::Value::Int(11))
+    );
+    assert_eq!(
+        session
+            .runtime_state
+            .get(&Symbol::parse("demo.fnapp/via-defn-rest")),
+        Some(&rust_clorure::clorure::runtime::value::Value::Int(2))
     );
 
     std::env::set_current_dir(old_dir).unwrap();

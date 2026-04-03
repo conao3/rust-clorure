@@ -12,8 +12,7 @@ pub struct AnalyzerError {
     pub form: Box<Form>,
 }
 
-type FnMethod = (Vec<Symbol>, Vec<Form>);
-type ParsedFnMethods = (Option<Symbol>, Vec<FnMethod>);
+type ParsedFnMethod = (Vec<Symbol>, Option<Symbol>, Vec<Form>);
 
 impl AnalyzerError {
     pub(crate) fn new(message: impl Into<String>, form: Form) -> Self {
@@ -235,21 +234,30 @@ fn analyze_fn(
     let (name, methods) = parse_fn_methods(args, &form)?;
     let mut method_bodies = Vec::new();
     let mut method_params = Vec::new();
-    for (params, body_forms) in methods {
+    let mut method_rests = Vec::new();
+    for (params, rest, body_forms) in methods {
         let mut fn_env = env.with_context(AnalysisContext::Return);
         for param in &params {
             fn_env = fn_env.with_local(param.clone());
+        }
+        if let Some(rest) = &rest {
+            fn_env = fn_env.with_local(rest.clone());
         }
         method_bodies.push(analyze_do_body(&body_forms, state, fn_env)?);
         method_params.push(Value::vector(
             params.into_iter().map(Value::symbol).collect(),
         ));
+        method_rests.push(rest.map_or(Value::Nil, Value::symbol));
     }
     let mut node = AstNode::new(AstOp::Fn, env, form)
         .with_children(method_bodies)
-        .with_attr("methods", Value::vector(method_params.clone()));
+        .with_attr("methods", Value::vector(method_params.clone()))
+        .with_attr("rests", Value::vector(method_rests.clone()));
     if let [single] = method_params.as_slice() {
         node = node.with_attr("params", single.clone());
+    }
+    if let [single] = method_rests.as_slice() {
+        node = node.with_attr("rest", single.clone());
     }
     if let Some(name) = name {
         node = node.with_attr("name", Value::symbol(name));
@@ -469,15 +477,24 @@ fn expect_symbol(form: Form) -> Result<Symbol, AnalyzerError> {
     }
 }
 
-fn parse_fn_methods(args: &[Form], form: &Form) -> Result<ParsedFnMethods, AnalyzerError> {
+fn parse_fn_methods(
+    args: &[Form],
+    form: &Form,
+) -> Result<(Option<Symbol>, Vec<ParsedFnMethod>), AnalyzerError> {
     match args {
         [params, body @ ..] if matches!(params.value, FormKind::Vector(_)) => Ok((
             None,
-            vec![(expect_vector_symbols(params.clone())?, body.to_vec())],
+            vec![{
+                let (params, rest) = expect_fn_params(params.clone())?;
+                (params, rest, body.to_vec())
+            }],
         )),
         [name_form, params, body @ ..] if matches!(params.value, FormKind::Vector(_)) => Ok((
             Some(expect_symbol(name_form.clone())?),
-            vec![(expect_vector_symbols(params.clone())?, body.to_vec())],
+            vec![{
+                let (params, rest) = expect_fn_params(params.clone())?;
+                (params, rest, body.to_vec())
+            }],
         )),
         methods if methods.iter().all(is_fn_method_form) => Ok((
             None,
@@ -517,7 +534,7 @@ fn is_fn_method_form(form: &Form) -> bool {
     )
 }
 
-fn parse_fn_method_form(form: Form) -> Result<FnMethod, AnalyzerError> {
+fn parse_fn_method_form(form: Form) -> Result<ParsedFnMethod, AnalyzerError> {
     let FormKind::List(items) = form.value else {
         return Err(AnalyzerError::new("fn method must be a list", form));
     };
@@ -527,10 +544,8 @@ fn parse_fn_method_form(form: Form) -> Result<FnMethod, AnalyzerError> {
             Form::new(FormKind::List(items), default_meta()),
         ));
     };
-    Ok((
-        expect_vector_symbols(params_form.clone())?,
-        body_forms.to_vec(),
-    ))
+    let (params, rest) = expect_fn_params(params_form.clone())?;
+    Ok((params, rest, body_forms.to_vec()))
 }
 
 fn parse_ns_metadata(
@@ -822,15 +837,41 @@ fn resolve_symbol(state: &CompilerState, env: &AnalysisEnv, symbol: &Symbol) -> 
     }
 }
 
-fn expect_vector_symbols(form: Form) -> Result<Vec<Symbol>, AnalyzerError> {
+fn expect_fn_params(form: Form) -> Result<(Vec<Symbol>, Option<Symbol>), AnalyzerError> {
     let meta = form.meta.clone();
-    match form.value {
-        FormKind::Vector(items) => items.into_iter().map(expect_symbol).collect(),
-        _ => Err(AnalyzerError::new(
+    let FormKind::Vector(items) = form.value else {
+        return Err(AnalyzerError::new(
             "expected vector of symbols",
             Form::new(FormKind::Nil, meta),
-        )),
+        ));
+    };
+
+    let mut params = Vec::new();
+    let mut rest = None;
+    let mut iter = items.into_iter();
+    while let Some(item) = iter.next() {
+        let symbol = expect_symbol(item)?;
+        if symbol.name() == "&" {
+            let Some(rest_symbol_form) = iter.next() else {
+                return Err(AnalyzerError::new(
+                    "variadic params require a rest symbol after '&'",
+                    Form::new(FormKind::Nil, meta),
+                ));
+            };
+            let rest_symbol = expect_symbol(rest_symbol_form)?;
+            if iter.next().is_some() {
+                return Err(AnalyzerError::new(
+                    "variadic params can only include one rest symbol",
+                    Form::new(FormKind::Nil, meta),
+                ));
+            }
+            rest = Some(rest_symbol);
+            break;
+        }
+        params.push(symbol);
     }
+
+    Ok((params, rest))
 }
 
 fn expect_binding_vector(form: Form) -> Result<Vec<(Symbol, Form)>, AnalyzerError> {

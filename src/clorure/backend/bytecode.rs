@@ -8,6 +8,7 @@ use crate::clorure::runtime::value::{FnValue, Value};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClosureMethod {
     pub params: Vec<String>,
+    pub rest: Option<String>,
     pub body: Box<BytecodeProgram>,
 }
 
@@ -24,6 +25,7 @@ pub enum Instruction {
     BranchNil(usize),
     MakeClosure {
         params: Vec<String>,
+        rest: Option<String>,
         body: Box<BytecodeProgram>,
         captured: Vec<String>,
     },
@@ -129,6 +131,7 @@ impl BytecodeCompiler {
                 if methods.len() <= 1 {
                     let method = methods.into_iter().next().unwrap_or_else(|| ClosureMethod {
                         params: Vec::new(),
+                        rest: None,
                         body: Box::new(emit(&node.children.first().cloned().unwrap_or_else(
                             || {
                                 AstNode::new(AstOp::Constant, node.env.clone(), node.form.clone())
@@ -139,6 +142,7 @@ impl BytecodeCompiler {
                     self.push(
                         Instruction::MakeClosure {
                             params: method.params,
+                            rest: method.rest,
                             body: method.body,
                             captured: captures,
                         },
@@ -415,6 +419,7 @@ impl Vm {
                 }
                 Instruction::MakeClosure {
                     params,
+                    rest,
                     body,
                     captured,
                 } => {
@@ -428,12 +433,34 @@ impl Vm {
                     let shared_globals = Arc::clone(&self.globals);
                     let closure = FnValue {
                         name: None,
-                        arity: params.len(),
+                        arity: if rest.is_some() {
+                            usize::MAX
+                        } else {
+                            params.len()
+                        },
                         func: Arc::new(move |args| {
+                            if rest.is_none() && args.len() != params.len() {
+                                return Err(format!(
+                                    "no matching arity for {} argument(s)",
+                                    args.len()
+                                ));
+                            }
+                            if rest.is_some() && args.len() < params.len() {
+                                return Err(format!(
+                                    "no matching arity for {} argument(s)",
+                                    args.len()
+                                ));
+                            }
                             let mut vm = Vm::with_shared_globals(Arc::clone(&shared_globals));
                             let mut frame = captured_locals.clone();
                             for (param, value) in params.iter().zip(args.iter()) {
                                 frame.insert(param.clone(), value.clone());
+                            }
+                            if let Some(rest) = &rest {
+                                frame.insert(
+                                    rest.clone(),
+                                    Value::list(args[params.len()..].to_vec()),
+                                );
                             }
                             vm.run_with_locals(&body, frame)
                                 .map_err(|error| error.message)
@@ -454,10 +481,13 @@ impl Vm {
                         name: None,
                         arity: usize::MAX,
                         func: Arc::new(move |args| {
-                            let Some(method) = methods
-                                .iter()
-                                .find(|method| method.params.len() == args.len())
-                            else {
+                            let Some(method) = methods.iter().find(|method| {
+                                if method.rest.is_some() {
+                                    args.len() >= method.params.len()
+                                } else {
+                                    method.params.len() == args.len()
+                                }
+                            }) else {
                                 return Err(format!(
                                     "no matching arity for {} argument(s)",
                                     args.len()
@@ -467,6 +497,12 @@ impl Vm {
                             let mut frame = captured_locals.clone();
                             for (param, value) in method.params.iter().zip(args.iter()) {
                                 frame.insert(param.clone(), value.clone());
+                            }
+                            if let Some(rest) = &method.rest {
+                                frame.insert(
+                                    rest.clone(),
+                                    Value::list(args[method.params.len()..].to_vec()),
+                                );
                             }
                             vm.run_with_locals(&method.body, frame)
                                 .map_err(|error| error.message)
@@ -555,12 +591,25 @@ fn closure_methods(node: &AstNode) -> Vec<ClosureMethod> {
             .collect::<Vec<_>>(),
         _ => Vec::new(),
     };
+    let method_rests = match node.attrs.get("rests") {
+        Some(Value::Vector(vector)) => vector
+            .items
+            .iter()
+            .map(|value| match value {
+                Value::Symbol(symbol) => Some(symbol.symbol.name().to_string()),
+                Value::Nil => None,
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
 
     node.children
         .iter()
         .enumerate()
         .map(|(idx, body)| ClosureMethod {
             params: method_params.get(idx).cloned().unwrap_or_default(),
+            rest: method_rests.get(idx).cloned().unwrap_or(None),
             body: Box::new(emit(body)),
         })
         .collect()
