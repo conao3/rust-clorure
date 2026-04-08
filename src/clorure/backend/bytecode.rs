@@ -15,6 +15,7 @@ pub struct ClosureMethod {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     Const(Value),
+    Dup,
     LookupVar(Symbol),
     LookupLocal(String),
     SetLocal(String),
@@ -35,6 +36,7 @@ pub enum Instruction {
     },
     InvokeRecur(Vec<String>),
     PushHandler(usize),
+    PopHandler,
     Throw,
     Pop,
     Return,
@@ -104,7 +106,7 @@ impl BytecodeCompiler {
                     }
                 }
             }
-            AstOp::Ns => {
+            AstOp::Ns | AstOp::DefProtocol | AstOp::ExtendType => {
                 self.push(Instruction::Const(Value::Nil), node.form.meta.clone());
             }
             AstOp::Def | AstOp::DefMacro => {
@@ -241,16 +243,106 @@ impl BytecodeCompiler {
                 }
             }
             AstOp::Try => {
-                let handler_idx = self.instructions.len();
-                self.push(Instruction::PushHandler(usize::MAX), node.form.meta.clone());
-                for (idx, child) in node.children.iter().enumerate() {
-                    self.compile_node(child);
-                    if idx + 1 != node.children.len() {
-                        self.push(Instruction::Pop, child.form.meta.clone());
+                let has_catch = node.attrs.contains_key("catch_binding");
+                let has_finally = node.children.len() > if has_catch { 2 } else { 1 };
+                if !has_finally && has_catch {
+                    let binding = match node.attrs.get("catch_binding") {
+                        Some(Value::Symbol(binding)) => binding,
+                        _ => unreachable!(),
+                    };
+                    let handler_idx = self.instructions.len();
+                    self.push(Instruction::PushHandler(usize::MAX), node.form.meta.clone());
+                    self.compile_node(&node.children[0]);
+                    self.push(Instruction::PopHandler, node.form.meta.clone());
+                    let jump_idx = self.instructions.len();
+                    self.push(Instruction::Jump(usize::MAX), node.form.meta.clone());
+                    let catch_start = self.instructions.len();
+                    self.push(
+                        Instruction::SetLocal(binding.symbol.name().to_string()),
+                        node.form.meta.clone(),
+                    );
+                    self.push(Instruction::Pop, node.form.meta.clone());
+                    self.compile_node(&node.children[1]);
+                    let end_idx = self.instructions.len();
+                    self.patch(handler_idx, Instruction::PushHandler(catch_start));
+                    self.patch(jump_idx, Instruction::Jump(end_idx));
+                } else if !has_finally {
+                    let handler_idx = self.instructions.len();
+                    self.push(Instruction::PushHandler(usize::MAX), node.form.meta.clone());
+                    for (idx, child) in node.children.iter().enumerate() {
+                        self.compile_node(child);
+                        if idx + 1 != node.children.len() {
+                            self.push(Instruction::Pop, child.form.meta.clone());
+                        }
+                    }
+                    self.push(Instruction::PopHandler, node.form.meta.clone());
+                    let end_idx = self.instructions.len();
+                    self.patch(handler_idx, Instruction::PushHandler(end_idx));
+                } else {
+                    let result_slot = format!("__try_result_{}", self.instructions.len());
+                    let error_slot = format!("__try_error_{}", self.instructions.len());
+                    let finally_idx = if has_catch { 2 } else { 1 };
+                    let finally_node = &node.children[finally_idx];
+                    let handler_idx = self.instructions.len();
+                    self.push(Instruction::PushHandler(usize::MAX), node.form.meta.clone());
+                    self.compile_node(&node.children[0]);
+                    self.push(Instruction::PopHandler, node.form.meta.clone());
+                    self.push(Instruction::SetLocal(result_slot.clone()), node.form.meta.clone());
+                    self.push(Instruction::Pop, node.form.meta.clone());
+                    self.compile_node(finally_node);
+                    self.push(Instruction::Pop, node.form.meta.clone());
+                    self.push(Instruction::LookupLocal(result_slot.clone()), node.form.meta.clone());
+                    let end_jump_idx = self.instructions.len();
+                    self.push(Instruction::Jump(usize::MAX), node.form.meta.clone());
+
+                    let catch_start = self.instructions.len();
+                    if has_catch {
+                        let binding = match node.attrs.get("catch_binding") {
+                            Some(Value::Symbol(binding)) => binding,
+                            _ => unreachable!(),
+                        };
+                        self.push(
+                            Instruction::SetLocal(binding.symbol.name().to_string()),
+                            node.form.meta.clone(),
+                        );
+                        self.push(Instruction::Pop, node.form.meta.clone());
+                        let catch_throw_idx = self.instructions.len();
+                        self.push(Instruction::PushHandler(usize::MAX), node.form.meta.clone());
+                        self.compile_node(&node.children[1]);
+                        self.push(Instruction::PopHandler, node.form.meta.clone());
+                        self.push(Instruction::SetLocal(result_slot.clone()), node.form.meta.clone());
+                        self.push(Instruction::Pop, node.form.meta.clone());
+                        self.compile_node(finally_node);
+                        self.push(Instruction::Pop, node.form.meta.clone());
+                        self.push(Instruction::LookupLocal(result_slot.clone()), node.form.meta.clone());
+                        let catch_end_jump_idx = self.instructions.len();
+                        self.push(Instruction::Jump(usize::MAX), node.form.meta.clone());
+
+                        let finally_rethrow_start = self.instructions.len();
+                        self.push(Instruction::SetLocal(error_slot.clone()), node.form.meta.clone());
+                        self.push(Instruction::Pop, node.form.meta.clone());
+                        self.compile_node(finally_node);
+                        self.push(Instruction::Pop, node.form.meta.clone());
+                        self.push(Instruction::LookupLocal(error_slot.clone()), node.form.meta.clone());
+                        self.push(Instruction::Throw, node.form.meta.clone());
+                        let end_idx = self.instructions.len();
+
+                        self.patch(handler_idx, Instruction::PushHandler(catch_start));
+                        self.patch(catch_throw_idx, Instruction::PushHandler(finally_rethrow_start));
+                        self.patch(end_jump_idx, Instruction::Jump(end_idx));
+                        self.patch(catch_end_jump_idx, Instruction::Jump(end_idx));
+                    } else {
+                        self.push(Instruction::SetLocal(error_slot.clone()), node.form.meta.clone());
+                        self.push(Instruction::Pop, node.form.meta.clone());
+                        self.compile_node(finally_node);
+                        self.push(Instruction::Pop, node.form.meta.clone());
+                        self.push(Instruction::LookupLocal(error_slot.clone()), node.form.meta.clone());
+                        self.push(Instruction::Throw, node.form.meta.clone());
+                        let end_idx = self.instructions.len();
+                        self.patch(handler_idx, Instruction::PushHandler(catch_start));
+                        self.patch(end_jump_idx, Instruction::Jump(end_idx));
                     }
                 }
-                let end_idx = self.instructions.len();
-                self.patch(handler_idx, Instruction::PushHandler(end_idx));
             }
             AstOp::Throw => {
                 if let Some(child) = node.children.first() {
@@ -345,6 +437,13 @@ impl Vm {
             }
             match instruction {
                 Instruction::Const(value) => stack.push(value),
+                Instruction::Dup => {
+                    let value = stack
+                        .last()
+                        .cloned()
+                        .ok_or_else(|| self.error(program, ip, "stack underflow".to_string()))?;
+                    stack.push(value);
+                }
                 Instruction::LookupVar(symbol) => {
                     let value = self
                         .globals
@@ -520,6 +619,9 @@ impl Vm {
                     continue;
                 }
                 Instruction::PushHandler(target) => handlers.push(target),
+                Instruction::PopHandler => {
+                    let _ = handlers.pop();
+                }
                 Instruction::Throw => {
                     let value = stack
                         .pop()

@@ -72,7 +72,7 @@ pub fn install_phase1(registry: &mut BuiltinRegistry) {
     for namespace in [CORE_NS, "clorure.core"] {
         for name in [
             "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
-            "some?", "seq", "empty", "apply", "concat",
+            "some?", "seq", "empty", "apply", "concat", "meta", "with-meta",
         ] {
             register_core_symbol(registry, namespace, name, core_builtin(name));
         }
@@ -182,7 +182,7 @@ fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
     let mut values = Vec::new();
     for name in [
         "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
-        "some?", "seq", "empty", "apply", "concat",
+        "some?", "seq", "empty", "apply", "concat", "meta", "with-meta",
     ] {
         let symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/{name}"));
         values.push((
@@ -681,6 +681,50 @@ fn core_builtin(name: &str) -> BuiltinFn {
                 }
             }
             Ok(Value::list(items))
+        }),
+        "meta" => Arc::new(|args, _| match args {
+            [value] => Ok(value
+                .meta()
+                .map(|meta| {
+                    Value::map(
+                        meta.iter()
+                            .map(|(key, value)| (Value::Keyword(key.clone()), value.clone()))
+                            .collect(),
+                    )
+                })
+                .unwrap_or(Value::Nil)),
+            _ => Err(BuiltinError::new("meta expects one value")),
+        }),
+        "with-meta" => Arc::new(|args, _| match args {
+            [value, Value::Map(map)] => {
+                let mut metadata = std::collections::BTreeMap::new();
+                for (key, value) in map.entries.iter() {
+                    let Value::Keyword(keyword) = key else {
+                        return Err(BuiltinError::new("with-meta metadata keys must be keywords"));
+                    };
+                    metadata.insert(keyword.clone(), value.clone());
+                }
+
+                let supports_meta = matches!(
+                    value,
+                    Value::Symbol(_)
+                        | Value::List(_)
+                        | Value::Vector(_)
+                        | Value::Map(_)
+                        | Value::Set(_)
+                        | Value::Fn(_)
+                        | Value::Macro(_)
+                );
+                if !supports_meta {
+                    return Err(BuiltinError::new(
+                        "with-meta expects a symbol, collection, or function value",
+                    ));
+                }
+
+                Ok(value.clone().with_meta(metadata))
+            }
+            [_, _] => Err(BuiltinError::new("with-meta expects a metadata map as the second argument")),
+            _ => Err(BuiltinError::new("with-meta expects a value and a metadata map")),
         }),
         _ => Arc::new(|_, _| Err(BuiltinError::new("unknown core builtin"))),
     }

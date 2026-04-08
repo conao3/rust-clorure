@@ -132,3 +132,45 @@ fn tagged_literal_registry_can_transform_values() {
         other => panic!("expected tagged literal, got {other:?}"),
     }
 }
+
+#[test]
+fn metadata_reader_macro_desugars_into_with_meta_call() {
+    let forms = read_all("^:private foo ^String bar ^{:tag :demo} [1 2]").unwrap();
+
+    let private_meta = match &forms[0].value {
+        FormKind::List(items) => items,
+        other => panic!("expected metadata list, got {other:?}"),
+    };
+    assert!(matches!(private_meta[0].value, FormKind::Symbol(_)));
+    assert!(matches!(private_meta[1].value, FormKind::Symbol(_)));
+    match &private_meta[2].value {
+        FormKind::Map(entries) => {
+            assert_eq!(entries.len(), 1);
+            assert!(matches!(entries[0].0.value, FormKind::Keyword(_)));
+            assert!(matches!(entries[0].1.value, FormKind::Bool(true)));
+        }
+        other => panic!("expected metadata map, got {other:?}"),
+    }
+
+    let tag_meta = match &forms[1].value {
+        FormKind::List(items) => items,
+        other => panic!("expected metadata list, got {other:?}"),
+    };
+    match &tag_meta[2].value {
+        FormKind::Map(entries) => {
+            assert_eq!(entries.len(), 1);
+            assert!(matches!(entries[0].0.value, FormKind::Keyword(_)));
+            assert!(matches!(entries[0].1.value, FormKind::Symbol(_)));
+        }
+        other => panic!("expected metadata map, got {other:?}"),
+    }
+
+    let explicit_meta = match &forms[2].value {
+        FormKind::List(items) => items,
+        other => panic!("expected metadata list, got {other:?}"),
+    };
+    match &explicit_meta[2].value {
+        FormKind::Map(entries) => assert_eq!(entries.len(), 1),
+        other => panic!("expected explicit metadata map, got {other:?}"),
+    }
+}

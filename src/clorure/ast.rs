@@ -12,6 +12,8 @@ pub enum AstOp {
     Ns,
     Def,
     DefMacro,
+    DefProtocol,
+    ExtendType,
     Fn,
     Let,
     If,

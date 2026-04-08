@@ -195,3 +195,93 @@ fn analyzer_rejects_ambiguous_variadic_method_sets() {
             .contains("variadic fn arity must be the last method")
     );
 }
+
+#[test]
+fn analyzer_builds_try_with_catch_binding() {
+    let form = read_all("(try (throw 1) (catch err err))").unwrap().remove(0);
+    let mut state = CompilerState::default();
+    let ast = analyze(form, &mut state, AnalysisEnv::default()).unwrap();
+
+    assert_eq!(ast.op, AstOp::Try);
+    assert_eq!(
+        ast.attrs.get("catch_binding"),
+        Some(&Value::symbol(Symbol::parse("err")))
+    );
+    assert_eq!(ast.children.len(), 2);
+}
+
+#[test]
+fn analyzer_builds_try_with_finally_clause() {
+    let form = read_all("(try 1 (catch err err) (finally 2 3))")
+        .unwrap()
+        .remove(0);
+    let mut state = CompilerState::default();
+    let ast = analyze(form, &mut state, AnalysisEnv::default()).unwrap();
+
+    assert_eq!(ast.op, AstOp::Try);
+    assert_eq!(ast.children.len(), 3);
+    assert_eq!(
+        ast.attrs.get("catch_binding"),
+        Some(&Value::symbol(Symbol::parse("err")))
+    );
+}
+
+#[test]
+fn analyzer_registers_protocol_definitions() {
+    let form = read_all("(defprotocol Greeter (greet [this]) (farewell [this name]))")
+        .unwrap()
+        .remove(0);
+    let mut state = CompilerState::default();
+    let ast = analyze(
+        form,
+        &mut state,
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.core")),
+    )
+    .unwrap();
+
+    assert_eq!(ast.op, AstOp::DefProtocol);
+    assert_eq!(
+        ast.attrs.get("name"),
+        Some(&Value::symbol(Symbol::parse("demo.core/Greeter")))
+    );
+    assert_eq!(state.protocol_definitions.len(), 1);
+    assert_eq!(
+        state.protocol_definitions[0].name,
+        Symbol::parse("demo.core/Greeter")
+    );
+    assert_eq!(
+        state.protocol_definitions[0].methods,
+        vec![
+            Symbol::parse("demo.core/greet"),
+            Symbol::parse("demo.core/farewell")
+        ]
+    );
+    assert!(state.vars.contains_key(&Symbol::parse("demo.core/Greeter")));
+    assert!(state.vars.contains_key(&Symbol::parse("demo.core/greet")));
+    assert!(state.vars.contains_key(&Symbol::parse("demo.core/farewell")));
+}
+
+#[test]
+fn analyzer_builds_extend_type_nodes() {
+    let form = read_all("(extend-type Vector Greeter (greet [this] (count this)))")
+        .unwrap()
+        .remove(0);
+    let mut state = CompilerState::default();
+    let ast = analyze(
+        form,
+        &mut state,
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.core")),
+    )
+    .unwrap();
+
+    assert_eq!(ast.op, AstOp::ExtendType);
+    assert_eq!(
+        ast.attrs.get("target_type"),
+        Some(&Value::symbol(Symbol::parse("Vector")))
+    );
+    assert_eq!(
+        ast.attrs.get("protocol"),
+        Some(&Value::symbol(Symbol::parse("demo.core/Greeter")))
+    );
+    assert_eq!(ast.children.len(), 1);
+}

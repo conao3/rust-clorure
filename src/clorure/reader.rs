@@ -125,6 +125,7 @@ impl Reader {
             .peek()
             .ok_or_else(|| self.error_here("unexpected end of input"))?;
         match ch {
+            '^' => self.read_metadata(),
             '\'' => {
                 self.bump();
                 let item = self.read_item(false)?;
@@ -164,6 +165,25 @@ impl Reader {
             '#' => self.read_dispatch(in_collection),
             _ => self.read_atom(),
         }
+    }
+
+    fn read_metadata(&mut self) -> ReaderResult<ParsedItem> {
+        let start = self.cursor;
+        self.expect_char('^')?;
+        let metadata_item = self.read_item(false)?;
+        let metadata_form = self.expect_form(metadata_item)?;
+        let target_item = self.read_item(false)?;
+        let target_form = self.expect_form(target_item)?;
+        let normalized_meta = self.normalize_metadata_form(metadata_form)?;
+
+        Ok(ParsedItem::Form(Form::new(
+            FormKind::List(vec![
+                Form::symbol(None, "with-meta", self.meta_from(start)),
+                target_form,
+                normalized_meta,
+            ]),
+            self.meta_from(start),
+        )))
     }
 
     fn read_list(&mut self) -> ReaderResult<ParsedItem> {
@@ -486,6 +506,38 @@ impl Reader {
             _ => Err(ReaderError::new(
                 "reader conditional keys must be keywords",
                 form.meta,
+            )),
+        }
+    }
+
+    fn normalize_metadata_form(&self, form: Form) -> ReaderResult<Form> {
+        let meta = form.meta.clone();
+        match form.value {
+            FormKind::Map(_) => Ok(form),
+            FormKind::Keyword(keyword) => Ok(Form::new(
+                FormKind::Map(vec![(
+                    Form::new(FormKind::Keyword(keyword), meta.clone()),
+                    Form::new(FormKind::Bool(true), meta.clone()),
+                )]),
+                meta,
+            )),
+            FormKind::Symbol(symbol) => Ok(Form::new(
+                FormKind::Map(vec![(
+                    Form::keyword(None, "tag", meta.clone()),
+                    Form::new(FormKind::Symbol(symbol), meta.clone()),
+                )]),
+                meta,
+            )),
+            FormKind::String(value) => Ok(Form::new(
+                FormKind::Map(vec![(
+                    Form::keyword(None, "tag", meta.clone()),
+                    Form::new(FormKind::String(value), meta.clone()),
+                )]),
+                meta,
+            )),
+            _ => Err(ReaderError::new(
+                "metadata must be a map, keyword, symbol, or string",
+                meta,
             )),
         }
     }

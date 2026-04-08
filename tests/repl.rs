@@ -262,6 +262,102 @@ fn repl_eval_and_analyze_return_incremental_results() {
         Some(rust_clorure::clorure::runtime::value::Value::Int(3))
     );
 
+    let metadata = repl::eval_str(
+        &mut session,
+        "(meta (with-meta (vector 1 2) {:tag :numbers}))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        metadata.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::map(vec![(
+            rust_clorure::clorure::runtime::value::Value::Keyword(
+                rust_clorure::clorure::forms::Keyword::parse(":tag"),
+            ),
+            rust_clorure::clorure::runtime::value::Value::Keyword(
+                rust_clorure::clorure::forms::Keyword::parse(":numbers"),
+            ),
+        )]))
+    );
+
+    let metadata_reader = repl::eval_str(
+        &mut session,
+        "(meta ^{:tag :reader} (vector 1 2))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        metadata_reader.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::map(vec![(
+            rust_clorure::clorure::runtime::value::Value::Keyword(
+                rust_clorure::clorure::forms::Keyword::parse(":tag"),
+            ),
+            rust_clorure::clorure::runtime::value::Value::Keyword(
+                rust_clorure::clorure::forms::Keyword::parse(":reader"),
+            ),
+        )]))
+    );
+
+    let caught = repl::eval_str(
+        &mut session,
+        "(try (throw 99) (catch err err))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        caught.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(99))
+    );
+
+    let finally_side_effect = repl::eval_str(
+        &mut session,
+        "(def marker 0) (try 1 (finally (def marker 2))) marker",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        finally_side_effect.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(2))
+    );
+
+    let catch_finally = repl::eval_str(
+        &mut session,
+        "(try (throw 99) (catch err err) (finally 0))",
+        AnalysisEnv::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        catch_finally.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(99))
+    );
+
+    let protocol = repl::eval_str(
+        &mut session,
+        "(defprotocol Greeter (greet [this]) (farewell [this name]))",
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.core")),
+    )
+    .unwrap();
+    assert_eq!(
+        protocol.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Nil)
+    );
+    assert_eq!(session.compiler_state.protocol_definitions.len(), 1);
+    assert_eq!(
+        session.compiler_state.protocol_definitions[0].name,
+        Symbol::parse("demo.core/Greeter")
+    );
+
+    let protocol_dispatch = repl::eval_str(
+        &mut session,
+        "(defprotocol Sized (size [this])) (extend-type Vector Sized (size [this] (count this))) (size (vector 1 2 3))",
+        AnalysisEnv::default().with_ns(Symbol::parse("demo.core")),
+    )
+    .unwrap();
+    assert_eq!(
+        protocol_dispatch.return_value,
+        Some(rust_clorure::clorure::runtime::value::Value::Int(3))
+    );
+
     let multi_arity_defn = repl::eval_str(
         &mut session,
         "(defn sum ([x] (+ x 1)) ([x y] (+ x y))) (sum 4 5)",

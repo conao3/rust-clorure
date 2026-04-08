@@ -53,3 +53,33 @@ fn vm_debug_step_exposes_instruction_trace() {
     let trace = vm.step(&program);
     assert!(matches!(trace[0], Instruction::Const(Value::Int(42))));
 }
+
+#[test]
+fn bytecode_try_catch_recovers_thrown_values() {
+    let mut state = CompilerState::default();
+    let program = compile("(try (throw 7) (catch err err))", &mut state);
+
+    let mut vm = Vm::default();
+    let result = vm.run(&program).unwrap();
+    assert_eq!(result, Value::Int(7));
+}
+
+#[test]
+fn bytecode_try_finally_preserves_result() {
+    let mut state = CompilerState::default();
+    let program = compile("(try 7 (finally 8))", &mut state);
+
+    let mut vm = Vm::default();
+    let result = vm.run(&program).unwrap();
+    assert_eq!(result, Value::Int(7));
+}
+
+#[test]
+fn bytecode_try_catch_finally_preserves_caught_result() {
+    let mut state = CompilerState::default();
+    let program = compile("(try (throw 7) (catch err err) (finally 8))", &mut state);
+
+    let mut vm = Vm::default();
+    let result = vm.run(&program).unwrap();
+    assert_eq!(result, Value::Int(7));
+}

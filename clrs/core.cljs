@@ -16,6 +16,8 @@
 (def empty clorure.bootstrap.primitives/empty)
 (def apply clorure.bootstrap.primitives/apply)
 (def concat clorure.bootstrap.primitives/concat)
+(def meta clorure.bootstrap.primitives/meta)
+(def with-meta clorure.bootstrap.primitives/with-meta)
 
 (def identity (fn [x] x))
 (def inc (fn [x] (+ x 1)))

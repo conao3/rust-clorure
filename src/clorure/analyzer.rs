@@ -129,6 +129,8 @@ fn analyze_list(
             "ns" => analyze_ns(form, &items[1..], state, env),
             "def" => analyze_def(form, &items[1..], state, env),
             "defmacro" => analyze_defmacro(form, &items[1..], state, env),
+            "defprotocol" => analyze_defprotocol(form, &items[1..], state, env),
+            "extend-type" => analyze_extend_type(form, &items[1..], state, env),
             "fn" => analyze_fn(form, &items[1..], state, env),
             "let" => analyze_let(form, &items[1..], state, env),
             "if" => analyze_if(form, &items[1..], state, env),
@@ -223,6 +225,134 @@ fn analyze_defmacro(
         .with_tag(Symbol::parse("var"))
         .with_children(vec![init])
         .with_attr("name", Value::symbol(qualified)))
+}
+
+fn analyze_defprotocol(
+    form: Form,
+    args: &[Form],
+    state: &mut CompilerState,
+    env: AnalysisEnv,
+) -> Result<AstNode, AnalyzerError> {
+    let Some(name_form) = args.first().cloned() else {
+        return Err(AnalyzerError::new(
+            "defprotocol requires a protocol name",
+            form,
+        ));
+    };
+    let protocol_symbol = expect_symbol(name_form)?;
+    let qualified_protocol = protocol_symbol.qualify(env.ns.to_string());
+
+    let mut methods = Vec::new();
+    for method_form in &args[1..] {
+        let FormKind::List(items) = &method_form.value else {
+            return Err(AnalyzerError::new(
+                "defprotocol method declarations must be lists",
+                method_form.clone(),
+            ));
+        };
+        let Some(method_name_form) = items.first().cloned() else {
+            return Err(AnalyzerError::new(
+                "defprotocol method declarations must start with a symbol",
+                method_form.clone(),
+            ));
+        };
+        let method_name = expect_symbol(method_name_form)?;
+        let qualified_method = method_name.qualify(env.ns.to_string());
+        let Some(signature_form) = items.get(1).cloned() else {
+            return Err(AnalyzerError::new(
+                "defprotocol methods require an argument vector",
+                method_form.clone(),
+            ));
+        };
+        let _ = expect_fn_params(signature_form)?;
+        methods.push(qualified_method);
+    }
+
+    state.protocol_definitions.push(crate::clorure::env::ProtocolDefinition {
+        name: qualified_protocol.clone(),
+        methods: methods.clone(),
+    });
+    state.register_var(qualified_protocol.clone(), Value::Nil);
+    for method in &methods {
+        state.register_var(method.clone(), Value::Nil);
+    }
+
+    Ok(AstNode::new(AstOp::DefProtocol, env, form)
+        .with_tag(Symbol::parse("protocol"))
+        .with_attr("name", Value::symbol(qualified_protocol))
+        .with_attr(
+            "methods",
+            Value::vector(methods.into_iter().map(Value::symbol).collect()),
+        ))
+}
+
+fn analyze_extend_type(
+    form: Form,
+    args: &[Form],
+    state: &mut CompilerState,
+    env: AnalysisEnv,
+) -> Result<AstNode, AnalyzerError> {
+    if args.len() < 3 {
+        return Err(AnalyzerError::new(
+            "extend-type requires a target type, protocol, and method implementations",
+            form,
+        ));
+    }
+    let target_type = expect_symbol(args[0].clone())?;
+    let protocol = expect_symbol(args[1].clone())?.qualify(env.ns.to_string());
+
+    let mut method_names = Vec::new();
+    let mut method_nodes = Vec::new();
+    for method_form in &args[2..] {
+        let FormKind::List(items) = &method_form.value else {
+            return Err(AnalyzerError::new(
+                "extend-type method implementations must be lists",
+                method_form.clone(),
+            ));
+        };
+        let Some(method_name_form) = items.first().cloned() else {
+            return Err(AnalyzerError::new(
+                "extend-type methods must start with a symbol",
+                method_form.clone(),
+            ));
+        };
+        let method_name = expect_symbol(method_name_form)?.qualify(env.ns.to_string());
+        let Some(params_form) = items.get(1).cloned() else {
+            return Err(AnalyzerError::new(
+                "extend-type methods require an argument vector",
+                method_form.clone(),
+            ));
+        };
+        let body_forms = &items[2..];
+        if body_forms.is_empty() {
+            return Err(AnalyzerError::new(
+                "extend-type methods require a body",
+                method_form.clone(),
+            ));
+        }
+
+        let fn_form = Form::new(
+            FormKind::List(
+                std::iter::once(Form::symbol(None, "fn", method_form.meta.clone()))
+                    .chain(std::iter::once(params_form))
+                    .chain(body_forms.iter().cloned())
+                    .collect(),
+            ),
+            method_form.meta.clone(),
+        );
+        method_names.push(method_name);
+        method_nodes.push(analyze(fn_form, state, env.clone())?);
+    }
+
+    Ok(AstNode::new(AstOp::ExtendType, env, form)
+        .with_tag(Symbol::parse("protocol-extension"))
+        .with_children(method_nodes)
+        .with_attr("target_type", Value::symbol(target_type))
+        .with_attr("protocol", Value::symbol(protocol))
+        .with_attr(
+            "methods",
+            Value::vector(method_names.into_iter().map(Value::symbol).collect()),
+        ))
 }
 
 fn analyze_fn(
@@ -437,11 +567,95 @@ fn analyze_try(
     if args.is_empty() {
         return Err(AnalyzerError::new("try requires a body", form));
     }
-    let mut children = Vec::new();
+
+    let mut body_forms = Vec::new();
+    let mut catch_clause = None;
+    let mut finally_clause = None;
+
     for arg in args {
-        children.push(analyze(arg.clone(), state, env.clone())?);
+        match &arg.value {
+            FormKind::List(items)
+                if items
+                    .first()
+                    .is_some_and(|first| matches!(&first.value, FormKind::Symbol(symbol) if symbol.name() == "catch")) =>
+            {
+                if catch_clause.is_some() || finally_clause.is_some() {
+                    return Err(AnalyzerError::new(
+                        "catch must appear at most once and before finally",
+                        arg.clone(),
+                    ));
+                }
+                catch_clause = Some(arg.clone());
+            }
+            FormKind::List(items)
+                if items
+                    .first()
+                    .is_some_and(|first| matches!(&first.value, FormKind::Symbol(symbol) if symbol.name() == "finally")) =>
+            {
+                if finally_clause.is_some() {
+                    return Err(AnalyzerError::new(
+                        "try supports at most one finally clause",
+                        arg.clone(),
+                    ));
+                }
+                finally_clause = Some(arg.clone());
+            }
+            _ if catch_clause.is_some() || finally_clause.is_some() => {
+                return Err(AnalyzerError::new(
+                    "forms after catch/finally are not supported",
+                    arg.clone(),
+                ));
+            }
+            _ => body_forms.push(arg.clone()),
+        }
     }
-    Ok(AstNode::new(AstOp::Try, env, form).with_children(children))
+
+    let body = analyze_do_body(&body_forms, state, env.clone())?;
+    let mut children = vec![body];
+    let mut catch_binding = None;
+
+    if let Some(catch_form) = catch_clause {
+        let FormKind::List(ref items) = catch_form.value else {
+            unreachable!();
+        };
+        let [_, binding_form, handler_body @ ..] = items.as_slice() else {
+            return Err(AnalyzerError::new(
+                "catch requires a binding symbol and a body",
+                catch_form.clone(),
+            ));
+        };
+        let binding = expect_symbol(binding_form.clone())?;
+        let catch_env = env.with_local(binding.clone());
+        let handler = analyze_do_body(handler_body, state, catch_env)?;
+        catch_binding = Some(binding);
+        children.push(handler);
+    }
+
+    if let Some(finally_form) = finally_clause {
+        let FormKind::List(ref items) = finally_form.value else {
+            unreachable!();
+        };
+        let [_, finally_body @ ..] = items.as_slice() else {
+            return Err(AnalyzerError::new(
+                "finally requires a body",
+                finally_form.clone(),
+            ));
+        };
+        if finally_body.is_empty() {
+            return Err(AnalyzerError::new(
+                "finally requires a body",
+                finally_form.clone(),
+            ));
+        }
+        let finally_node = analyze_do_body(finally_body, state, env.clone())?;
+        children.push(finally_node);
+    }
+
+    let mut node = AstNode::new(AstOp::Try, env, form).with_children(children);
+    if let Some(binding) = catch_binding {
+        node = node.with_attr("catch_binding", Value::symbol(binding));
+    }
+    Ok(node)
 }
 
 fn analyze_throw(

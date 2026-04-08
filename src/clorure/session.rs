@@ -4,14 +4,14 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::clorure::analyzer::{AnalyzerError, analyze};
-use crate::clorure::ast::AstNode;
+use crate::clorure::ast::{AstNode, AstOp};
 use crate::clorure::backend::bytecode::{BytecodeProgram, SharedGlobals, Vm};
 use crate::clorure::bootstrap;
 use crate::clorure::compiler::{BackendTarget, CompiledArtifact, compile};
 use crate::clorure::env::{AnalysisEnv, CompilerState, CompilerWarning};
 use crate::clorure::forms::{Form, Symbol};
 use crate::clorure::runtime::builtin::BuiltinRegistry;
-use crate::clorure::runtime::value::Value;
+use crate::clorure::runtime::value::{FnValue, Value};
 
 pub trait Loader: Send + Sync {
     fn load_file(&self, path: &Path) -> Result<String, String>;
@@ -84,6 +84,7 @@ pub struct Session {
     pub bytecode_cache: HashMap<String, BytecodeProgram>,
     pub builtin_registry: BuiltinRegistry,
     shared_globals: SharedGlobals,
+    protocol_impls: Arc<Mutex<HashMap<(Symbol, String), Value>>>,
     loader: Arc<dyn Loader>,
     evaluator: Arc<dyn Evaluator>,
 }
@@ -96,6 +97,7 @@ impl Default for Session {
         let runtime_state = bootstrap::bootstrap_runtime_state(&compiler_state);
         let mut session = Self {
             shared_globals: Arc::new(Mutex::new(runtime_state.clone())),
+            protocol_impls: Arc::new(Mutex::new(HashMap::new())),
             runtime_state,
             compiler_state,
             source_cache: HashMap::new(),
@@ -174,12 +176,18 @@ impl Session {
             produced_vars.extend(program.produced_vars.clone());
             produced_vars.extend(program.produced_macros.clone());
             return_value = Some(self.evaluator.eval(&self.shared_globals, &program)?);
+            self.apply_special_runtime_effects(&ast)?;
             self.runtime_state = self.snapshot_globals();
             if let Some(value) = return_value.clone() {
                 for symbol in &program.produced_vars {
-                    self.bind_global(symbol.clone(), value.clone());
+                    let var_value = self
+                        .runtime_state
+                        .get(symbol)
+                        .cloned()
+                        .unwrap_or_else(|| value.clone());
+                    self.bind_global(symbol.clone(), var_value.clone());
                     if symbol.namespace() == Some(crate::clorure::core::CORE_NS) {
-                        self.bind_global(Symbol::parse(symbol.name()), value.clone());
+                        self.bind_global(Symbol::parse(symbol.name()), var_value);
                     }
                 }
                 for symbol in &program.produced_macros {
@@ -258,8 +266,107 @@ impl Session {
         }
         Ok(())
     }
+
+    fn apply_special_runtime_effects(&mut self, ast: &AstNode) -> Result<(), String> {
+        match ast.op {
+            AstOp::DefProtocol => self.install_protocol_dispatch(ast),
+            AstOp::ExtendType => self.install_protocol_extension(ast),
+            _ => Ok(()),
+        }
+    }
+
+    fn install_protocol_dispatch(&mut self, ast: &AstNode) -> Result<(), String> {
+        let methods = match ast.attrs.get("methods") {
+            Some(Value::Vector(vector)) => vector.items.as_ref().clone(),
+            _ => return Ok(()),
+        };
+
+        for value in methods {
+            let Value::Symbol(symbol) = value else {
+                continue;
+            };
+            let method_symbol = symbol.symbol.clone();
+            let registry = Arc::clone(&self.protocol_impls);
+            let dispatch_symbol = method_symbol.clone();
+            let dispatch = Value::Fn(FnValue {
+                name: Some(method_symbol.clone()),
+                arity: usize::MAX,
+                func: Arc::new(move |args| {
+                    let Some(target) = args.first() else {
+                        return Err(format!(
+                            "protocol method '{}' expects at least one argument",
+                            dispatch_symbol
+                        ));
+                    };
+                    let type_tag = protocol_type_tag(target);
+                    let implementation = registry
+                        .lock()
+                        .expect("protocol registry mutex should not be poisoned")
+                        .get(&(dispatch_symbol.clone(), type_tag))
+                        .cloned()
+                        .ok_or_else(|| {
+                            format!(
+                                "no protocol implementation for '{}'",
+                                dispatch_symbol
+                            )
+                        })?;
+                    implementation.invoke(args)
+                }),
+                meta: None,
+            });
+            self.bind_global(method_symbol, dispatch);
+        }
+
+        Ok(())
+    }
+
+    fn install_protocol_extension(&mut self, ast: &AstNode) -> Result<(), String> {
+        let target_type = match ast.attrs.get("target_type") {
+            Some(Value::Symbol(symbol)) => symbol.symbol.name().to_ascii_lowercase(),
+            _ => return Ok(()),
+        };
+        let methods = match ast.attrs.get("methods") {
+            Some(Value::Vector(vector)) => vector.items.as_ref().clone(),
+            _ => return Ok(()),
+        };
+
+        for (method_value, method_ast) in methods.into_iter().zip(ast.children.iter()) {
+            let Value::Symbol(method_symbol) = method_value else {
+                continue;
+            };
+            let CompiledArtifact::Bytecode(program) = compile(method_ast, BackendTarget::Bytecode) else {
+                unreachable!();
+            };
+            let implementation = self.evaluator.eval(&self.shared_globals, &program)?;
+            self.protocol_impls
+                .lock()
+                .expect("protocol registry mutex should not be poisoned")
+                .insert((method_symbol.symbol.clone(), target_type.clone()), implementation);
+        }
+
+        Ok(())
+    }
 }
 
 fn cache_key(env: &AnalysisEnv, ast: &AstNode) -> String {
     format!("{}:{}:{}", env.ns, ast.form.meta.line, ast.form.meta.column)
+}
+
+fn protocol_type_tag(value: &Value) -> String {
+    match value {
+        Value::Nil => "nil".to_string(),
+        Value::Bool(_) => "bool".to_string(),
+        Value::Int(_) => "int".to_string(),
+        Value::String(_) => "string".to_string(),
+        Value::Keyword(_) => "keyword".to_string(),
+        Value::Symbol(_) => "symbol".to_string(),
+        Value::List(_) => "list".to_string(),
+        Value::Vector(_) => "vector".to_string(),
+        Value::Map(_) => "map".to_string(),
+        Value::Set(_) => "set".to_string(),
+        Value::Form(_) => "form".to_string(),
+        Value::Fn(_) => "fn".to_string(),
+        Value::Macro(_) => "macro".to_string(),
+        Value::OpaqueHandle(_) => "opaquehandle".to_string(),
+    }
 }
