@@ -268,10 +268,12 @@ fn analyze_defprotocol(
         methods.push(qualified_method);
     }
 
-    state.protocol_definitions.push(crate::clorure::env::ProtocolDefinition {
-        name: qualified_protocol.clone(),
-        methods: methods.clone(),
-    });
+    state
+        .protocol_definitions
+        .push(crate::clorure::env::ProtocolDefinition {
+            name: qualified_protocol.clone(),
+            methods: methods.clone(),
+        });
     state.register_var(qualified_protocol.clone(), Value::Nil);
     for method in &methods {
         state.register_var(method.clone(), Value::Nil);
@@ -1124,16 +1126,16 @@ fn expect_binding_vector(form: Form) -> Result<Vec<(Symbol, Form)>, AnalyzerErro
     let meta = form.meta.clone();
     match form.value {
         FormKind::Vector(items) => {
-            let chunks = items.chunks_exact(2);
-            if !chunks.remainder().is_empty() {
+            let (chunks, remainder) = items.as_chunks::<2>();
+            if !remainder.is_empty() {
                 return Err(AnalyzerError::new(
                     "binding vector requires an even number of forms",
                     Form::new(FormKind::Nil, meta),
                 ));
             }
             let mut bindings = Vec::new();
-            for pair in chunks {
-                bindings.push((expect_symbol(pair[0].clone())?, pair[1].clone()));
+            for [name, value] in chunks {
+                bindings.push((expect_symbol(name.clone())?, value.clone()));
             }
             Ok(bindings)
         }

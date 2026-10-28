@@ -287,11 +287,17 @@ impl BytecodeCompiler {
                     self.push(Instruction::PushHandler(usize::MAX), node.form.meta.clone());
                     self.compile_node(&node.children[0]);
                     self.push(Instruction::PopHandler, node.form.meta.clone());
-                    self.push(Instruction::SetLocal(result_slot.clone()), node.form.meta.clone());
+                    self.push(
+                        Instruction::SetLocal(result_slot.clone()),
+                        node.form.meta.clone(),
+                    );
                     self.push(Instruction::Pop, node.form.meta.clone());
                     self.compile_node(finally_node);
                     self.push(Instruction::Pop, node.form.meta.clone());
-                    self.push(Instruction::LookupLocal(result_slot.clone()), node.form.meta.clone());
+                    self.push(
+                        Instruction::LookupLocal(result_slot.clone()),
+                        node.form.meta.clone(),
+                    );
                     let end_jump_idx = self.instructions.len();
                     self.push(Instruction::Jump(usize::MAX), node.form.meta.clone());
 
@@ -310,33 +316,54 @@ impl BytecodeCompiler {
                         self.push(Instruction::PushHandler(usize::MAX), node.form.meta.clone());
                         self.compile_node(&node.children[1]);
                         self.push(Instruction::PopHandler, node.form.meta.clone());
-                        self.push(Instruction::SetLocal(result_slot.clone()), node.form.meta.clone());
+                        self.push(
+                            Instruction::SetLocal(result_slot.clone()),
+                            node.form.meta.clone(),
+                        );
                         self.push(Instruction::Pop, node.form.meta.clone());
                         self.compile_node(finally_node);
                         self.push(Instruction::Pop, node.form.meta.clone());
-                        self.push(Instruction::LookupLocal(result_slot.clone()), node.form.meta.clone());
+                        self.push(
+                            Instruction::LookupLocal(result_slot.clone()),
+                            node.form.meta.clone(),
+                        );
                         let catch_end_jump_idx = self.instructions.len();
                         self.push(Instruction::Jump(usize::MAX), node.form.meta.clone());
 
                         let finally_rethrow_start = self.instructions.len();
-                        self.push(Instruction::SetLocal(error_slot.clone()), node.form.meta.clone());
+                        self.push(
+                            Instruction::SetLocal(error_slot.clone()),
+                            node.form.meta.clone(),
+                        );
                         self.push(Instruction::Pop, node.form.meta.clone());
                         self.compile_node(finally_node);
                         self.push(Instruction::Pop, node.form.meta.clone());
-                        self.push(Instruction::LookupLocal(error_slot.clone()), node.form.meta.clone());
+                        self.push(
+                            Instruction::LookupLocal(error_slot.clone()),
+                            node.form.meta.clone(),
+                        );
                         self.push(Instruction::Throw, node.form.meta.clone());
                         let end_idx = self.instructions.len();
 
                         self.patch(handler_idx, Instruction::PushHandler(catch_start));
-                        self.patch(catch_throw_idx, Instruction::PushHandler(finally_rethrow_start));
+                        self.patch(
+                            catch_throw_idx,
+                            Instruction::PushHandler(finally_rethrow_start),
+                        );
                         self.patch(end_jump_idx, Instruction::Jump(end_idx));
                         self.patch(catch_end_jump_idx, Instruction::Jump(end_idx));
                     } else {
-                        self.push(Instruction::SetLocal(error_slot.clone()), node.form.meta.clone());
+                        self.push(
+                            Instruction::SetLocal(error_slot.clone()),
+                            node.form.meta.clone(),
+                        );
                         self.push(Instruction::Pop, node.form.meta.clone());
                         self.compile_node(finally_node);
                         self.push(Instruction::Pop, node.form.meta.clone());
-                        self.push(Instruction::LookupLocal(error_slot.clone()), node.form.meta.clone());
+                        self.push(
+                            Instruction::LookupLocal(error_slot.clone()),
+                            node.form.meta.clone(),
+                        );
                         self.push(Instruction::Throw, node.form.meta.clone());
                         let end_idx = self.instructions.len();
                         self.patch(handler_idx, Instruction::PushHandler(catch_start));

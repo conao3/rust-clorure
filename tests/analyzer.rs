@@ -198,7 +198,9 @@ fn analyzer_rejects_ambiguous_variadic_method_sets() {
 
 #[test]
 fn analyzer_builds_try_with_catch_binding() {
-    let form = read_all("(try (throw 1) (catch err err))").unwrap().remove(0);
+    let form = read_all("(try (throw 1) (catch err err))")
+        .unwrap()
+        .remove(0);
     let mut state = CompilerState::default();
     let ast = analyze(form, &mut state, AnalysisEnv::default()).unwrap();
 
@@ -258,7 +260,11 @@ fn analyzer_registers_protocol_definitions() {
     );
     assert!(state.vars.contains_key(&Symbol::parse("demo.core/Greeter")));
     assert!(state.vars.contains_key(&Symbol::parse("demo.core/greet")));
-    assert!(state.vars.contains_key(&Symbol::parse("demo.core/farewell")));
+    assert!(
+        state
+            .vars
+            .contains_key(&Symbol::parse("demo.core/farewell"))
+    );
 }
 
 #[test]
