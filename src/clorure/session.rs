@@ -305,10 +305,7 @@ impl Session {
                         .get(&(dispatch_symbol.clone(), type_tag))
                         .cloned()
                         .ok_or_else(|| {
-                            format!(
-                                "no protocol implementation for '{}'",
-                                dispatch_symbol
-                            )
+                            format!("no protocol implementation for '{}'", dispatch_symbol)
                         })?;
                     implementation.invoke(args)
                 }),
@@ -334,14 +331,18 @@ impl Session {
             let Value::Symbol(method_symbol) = method_value else {
                 continue;
             };
-            let CompiledArtifact::Bytecode(program) = compile(method_ast, BackendTarget::Bytecode) else {
+            let CompiledArtifact::Bytecode(program) = compile(method_ast, BackendTarget::Bytecode)
+            else {
                 unreachable!();
             };
             let implementation = self.evaluator.eval(&self.shared_globals, &program)?;
             self.protocol_impls
                 .lock()
                 .expect("protocol registry mutex should not be poisoned")
-                .insert((method_symbol.symbol.clone(), target_type.clone()), implementation);
+                .insert(
+                    (method_symbol.symbol.clone(), target_type.clone()),
+                    implementation,
+                );
         }
 
         Ok(())

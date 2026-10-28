@@ -71,8 +71,24 @@ pub fn feature_matrix() -> Vec<FeatureStatus> {
 pub fn install_phase1(registry: &mut BuiltinRegistry) {
     for namespace in [CORE_NS, "clorure.core"] {
         for name in [
-            "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
-            "some?", "seq", "empty", "apply", "concat", "meta", "with-meta",
+            "+",
+            "vector",
+            "list",
+            "count",
+            "first",
+            "rest",
+            "=",
+            "nil?",
+            "conj",
+            "nth",
+            "boolean",
+            "some?",
+            "seq",
+            "empty",
+            "apply",
+            "concat",
+            "meta",
+            "with-meta",
         ] {
             register_core_symbol(registry, namespace, name, core_builtin(name));
         }
@@ -181,8 +197,24 @@ fn register_core_symbol(
 fn bootstrap_primitives() -> Vec<(Symbol, Value)> {
     let mut values = Vec::new();
     for name in [
-        "+", "vector", "list", "count", "first", "rest", "=", "nil?", "conj", "nth", "boolean",
-        "some?", "seq", "empty", "apply", "concat", "meta", "with-meta",
+        "+",
+        "vector",
+        "list",
+        "count",
+        "first",
+        "rest",
+        "=",
+        "nil?",
+        "conj",
+        "nth",
+        "boolean",
+        "some?",
+        "seq",
+        "empty",
+        "apply",
+        "concat",
+        "meta",
+        "with-meta",
     ] {
         let symbol = Symbol::parse(&format!("{BOOTSTRAP_NS}/{name}"));
         values.push((
@@ -700,7 +732,9 @@ fn core_builtin(name: &str) -> BuiltinFn {
                 let mut metadata = std::collections::BTreeMap::new();
                 for (key, value) in map.entries.iter() {
                     let Value::Keyword(keyword) = key else {
-                        return Err(BuiltinError::new("with-meta metadata keys must be keywords"));
+                        return Err(BuiltinError::new(
+                            "with-meta metadata keys must be keywords",
+                        ));
                     };
                     metadata.insert(keyword.clone(), value.clone());
                 }
@@ -723,8 +757,12 @@ fn core_builtin(name: &str) -> BuiltinFn {
 
                 Ok(value.clone().with_meta(metadata))
             }
-            [_, _] => Err(BuiltinError::new("with-meta expects a metadata map as the second argument")),
-            _ => Err(BuiltinError::new("with-meta expects a value and a metadata map")),
+            [_, _] => Err(BuiltinError::new(
+                "with-meta expects a metadata map as the second argument",
+            )),
+            _ => Err(BuiltinError::new(
+                "with-meta expects a value and a metadata map",
+            )),
         }),
         _ => Arc::new(|_, _| Err(BuiltinError::new("unknown core builtin"))),
     }
