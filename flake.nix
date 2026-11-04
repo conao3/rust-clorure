@@ -27,10 +27,10 @@
               rustc
               rustfmt
             ]
-            ++ lib.optionals stdenv.isLinux [
+            ++ lib.optionals stdenv.hostPlatform.isLinux [
               mold
             ]
-            ++ lib.optionals stdenv.isDarwin [
+            ++ lib.optionals stdenv.hostPlatform.isDarwin [
               libiconv
             ];
 
